@@ -2,7 +2,7 @@
 RISK-X Risk Assessment Service
 ==============================
 Coordinates feature extraction, ML inference, deterministic risk scoring,
-policy decisioning, and explainable reason generation.
+policy decisioning, structured evidence extraction, and analyst explanation generation.
 """
 
 from enum import Enum
@@ -15,11 +15,14 @@ import pandas as pd
 from app.engine.scoring import calculate_risk_score
 from app.engine.decision import evaluate_decision, Decision, RiskLevel
 from app.engine.reasons import extract_risk_reasons
+from app.engine.evidence import extract_structured_evidence, generate_analyst_summary
 from app.schemas.risk import (
     TransactionAssessmentRequest,
     RiskAssessmentResponse,
     DecisionEnum,
     RiskLevelEnum,
+    EvidenceItem as SchemaEvidenceItem,
+    EvidenceSeverityEnum,
 )
 
 # Resolve default model artifact paths relative to project root
@@ -97,13 +100,14 @@ class RiskEngineService:
         3. Computes fraud probability via Random Forest detector
         4. Maps probability to deterministic 0-100 risk score
         5. Evaluates ALLOW / REVIEW / BLOCK decision policy
-        6. Extracts explainable risk reasons
+        6. Extracts explainable risk reasons & structured evidence items
+        7. Synthesizes concise analyst-facing narrative summary
 
         Args:
             transaction: Transaction data payload (Request schema or dictionary).
 
         Returns:
-            RiskAssessmentResponse with score, decision, risk level, and reasons.
+            RiskAssessmentResponse with score, decision, risk level, reasons, evidence, and analyst summary.
         """
         self._ensure_artifacts_loaded()
 
@@ -128,8 +132,27 @@ class RiskEngineService:
         # Step 4: Decision policy evaluation
         decision, risk_level = evaluate_decision(risk_score)
 
-        # Step 5: Explainable risk reason extraction
+        # Step 5: Explainable risk reason extraction (backward-compatible strings)
         reasons = extract_risk_reasons(raw_dict)
+
+        # Step 6: Structured evidence extraction and ranking
+        evidence_items = extract_structured_evidence(raw_dict)
+
+        # Map to schema EvidenceItem models
+        schema_evidence = [
+            SchemaEvidenceItem(
+                code=e.code,
+                severity=EvidenceSeverityEnum(e.severity.value),
+                title=e.title,
+                description=e.description,
+                observed_value=e.observed_value,
+                reference_threshold=e.reference_threshold,
+            )
+            for e in evidence_items
+        ]
+
+        # Step 7: Analyst explanation summary
+        analyst_summary = generate_analyst_summary(evidence_items, decision.value, risk_score)
 
         return RiskAssessmentResponse(
             risk_score=risk_score,
@@ -137,6 +160,8 @@ class RiskEngineService:
             decision=DecisionEnum(decision.value),
             risk_level=RiskLevelEnum(risk_level.value),
             reasons=reasons,
+            evidence=schema_evidence,
+            analyst_summary=analyst_summary,
             transaction_id=raw_dict.get("transaction_id"),
         )
 

@@ -20,11 +20,12 @@ backend/
 │   │   ├── __init__.py
 │   │   ├── scoring.py          # Deterministic 0-100 risk scoring
 │   │   ├── decision.py         # ALLOW / REVIEW / BLOCK decision engine
-│   │   ├── reasons.py          # Observable explainable risk signals
+│   │   ├── reasons.py          # Observable explainable risk signals (string list)
+│   │   ├── evidence.py         # Structured, ranked evidence signals & analyst summary
 │   │   └── service.py          # RiskEngineService coordinator & model lifecycle
 │   ├── schemas/
 │   │   ├── __init__.py
-│   │   └── risk.py             # Request & Response Pydantic models with strict validation
+│   │   └── risk.py             # Request & Response Pydantic models with structured evidence
 │   ├── __init__.py
 │   └── main.py                 # Application entrypoint with liveness & readiness probes
 ├── requirements.txt            # Python dependencies
@@ -109,6 +110,65 @@ uvicorn app.main:app --reload --port 8000
     "Risk signal: unusual transaction location detected outside typical customer operating regions.",
     "Risk signal: transaction initiated during atypical customer activity hours."
   ],
+  "evidence": [
+    {
+      "code": "AMOUNT_SPIKE",
+      "severity": "HIGH",
+      "title": "Unusual Transaction Amount Spike",
+      "description": "Transaction amount of INR 25,000.00 is significantly above customer historical average of INR 1,200.00 (20.8x baseline).",
+      "observed_value": 25000.0,
+      "reference_threshold": ">= 3.0x customer average (INR 1,200.00)"
+    },
+    {
+      "code": "DEVICE_MULTI_ACCOUNT_REUSE",
+      "severity": "HIGH",
+      "title": "Multi-Account Device Association",
+      "description": "Device hardware fingerprint has been associated with 3 distinct customer accounts.",
+      "observed_value": 3,
+      "reference_threshold": ">= 2 associated accounts"
+    },
+    {
+      "code": "FAILED_ATTEMPTS_BURST",
+      "severity": "MEDIUM",
+      "title": "Multiple Failed Payment Retries",
+      "description": "2 failed payment attempts recorded immediately prior to this transaction.",
+      "observed_value": 2,
+      "reference_threshold": ">= 2 failed authorization attempts"
+    },
+    {
+      "code": "NEW_DEVICE",
+      "severity": "MEDIUM",
+      "title": "Unrecognized Device Fingerprint",
+      "description": "Payment initiated from a previously unseen device fingerprint for this customer account.",
+      "observed_value": 1,
+      "reference_threshold": "Device first observed = 1"
+    },
+    {
+      "code": "UNUSUAL_LOCATION",
+      "severity": "MEDIUM",
+      "title": "Atypical Geographic Location",
+      "description": "Transaction origin city/region deviates from customer historical operating territory.",
+      "observed_value": 1,
+      "reference_threshold": "Unusual location flag = 1"
+    },
+    {
+      "code": "VELOCITY_BURST_10MIN",
+      "severity": "MEDIUM",
+      "title": "Rapid Payment Velocity (10 min)",
+      "description": "High frequency of 2 payment attempts recorded in the past 10 minutes.",
+      "observed_value": 2,
+      "reference_threshold": ">= 2 transactions in 10 minutes"
+    },
+    {
+      "code": "UNUSUAL_TIME",
+      "severity": "LOW",
+      "title": "Off-Hours Transaction Activity",
+      "description": "Transaction initiated outside established customer active operating hours.",
+      "observed_value": 1,
+      "reference_threshold": "Unusual time flag = 1"
+    }
+  ],
+  "analyst_summary": "Transaction evaluated with risk score 82 triggering policy BLOCK. Detected 7 risk signals (2 high-severity, 4 medium-severity, and 1 low-severity) driven primarily by unusual transaction amount spike, multi-account device association, and multiple failed payment retries.",
   "transaction_id": "txn_sample_001"
 }
 ```
@@ -119,14 +179,15 @@ uvicorn app.main:app --reload --port 8000
 
 1. **Model Lifecycle & Caching**: Artifacts are loaded into memory once on first demand and reused across all subsequent requests. No disk reads or model training occur during transaction evaluation.
 2. **Zero Target Leakage**: `TransactionAssessmentRequest` forbids extra fields (`model_config = ConfigDict(extra="forbid")`), rejecting requests containing `label` or `is_fraud` with HTTP 422.
-3. **Resilience**: If model files are missing or corrupted, the service returns HTTP 503 `Service Unavailable` with diagnostic error details rather than returning fallback or fake scores.
-4. **Latency Profile**: ~23 ms in local FastAPI TestClient benchmark (this measures in-process computation including payload schema validation, feature transformation, Random Forest scoring, and policy decisioning; it does not represent production network latency).
+3. **Structured Evidence & Ranking**: Observable signals are extracted, classified into severity tiers (`HIGH`, `MEDIUM`, `LOW`), and sorted deterministically.
+4. **Resilience**: If model files are missing or corrupted, the service returns HTTP 503 `Service Unavailable` with diagnostic error details rather than returning fallback or fake scores.
+5. **Latency Profile**: ~23 ms in local FastAPI TestClient benchmark (this measures in-process computation including payload schema validation, feature transformation, Random Forest scoring, and policy decisioning; it does not represent production network latency).
 
 ---
 
 ## Running Tests
 From the root directory:
 ```bash
-# Run all backend and engine unit tests
-pytest tests/backend/ tests/engine/ -v
+# Run all backend, engine, and ML unit tests
+pytest tests/ -v
 ```

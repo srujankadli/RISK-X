@@ -1,11 +1,12 @@
 """
 RISK-X Risk Assessment Pydantic Contracts
 =========================================
-Defines input transaction assessment requests and deterministic risk evaluation responses.
+Defines input transaction assessment requests and deterministic risk evaluation responses
+with backward-compatible structured evidence representations.
 """
 
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -29,6 +30,39 @@ class RiskLevelEnum(str, Enum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
+
+
+class EvidenceSeverityEnum(str, Enum):
+    """Severity tier for an individual structured evidence signal."""
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+
+class EvidenceSignalCodeEnum(str, Enum):
+    """Standardized machine-readable evidence signal codes."""
+    AMOUNT_SPIKE = "AMOUNT_SPIKE"
+    VELOCITY_BURST_10MIN = "VELOCITY_BURST_10MIN"
+    VELOCITY_ELEVATED_1HR = "VELOCITY_ELEVATED_1HR"
+    FAILED_ATTEMPTS_BURST = "FAILED_ATTEMPTS_BURST"
+    FAILED_ATTEMPT_PRIOR = "FAILED_ATTEMPT_PRIOR"
+    NEW_DEVICE = "NEW_DEVICE"
+    DEVICE_MULTI_ACCOUNT_REUSE = "DEVICE_MULTI_ACCOUNT_REUSE"
+    UNUSUAL_LOCATION = "UNUSUAL_LOCATION"
+    UNUSUAL_TIME = "UNUSUAL_TIME"
+
+
+class EvidenceItem(BaseModel):
+    """Structured observable evidence signal for analyst review."""
+    code: str = Field(..., description="Standardized machine-readable signal code")
+    severity: EvidenceSeverityEnum = Field(..., description="Signal severity tier: HIGH, MEDIUM, LOW")
+    title: str = Field(..., description="Concise human-readable signal title")
+    description: str = Field(..., description="Detailed explainable description of observed indicator")
+    observed_value: Any = Field(..., description="Observed transaction metric value")
+    reference_threshold: Optional[str] = Field(
+        default=None,
+        description="Reference baseline or threshold criteria applied"
+    )
 
 
 class TransactionAssessmentRequest(BaseModel):
@@ -77,4 +111,6 @@ class RiskAssessmentResponse(BaseModel):
     decision: DecisionEnum = Field(..., description="Guarded operational decision: ALLOW, REVIEW, BLOCK")
     risk_level: RiskLevelEnum = Field(..., description="Risk severity tier: LOW, MEDIUM, HIGH")
     reasons: List[str] = Field(default_factory=list, description="Concise explainable risk signals detected")
+    evidence: List[EvidenceItem] = Field(default_factory=list, description="Structured, ranked observable risk evidence items")
+    analyst_summary: Optional[str] = Field(default=None, description="Concise narrative summary of risk assessment for analysts")
     transaction_id: Optional[str] = Field(default=None, description="Associated transaction ID if provided")

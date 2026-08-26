@@ -8,7 +8,7 @@ client = TestClient(app)
 
 
 class TestProductionInferenceWorkflow:
-    """Production inference workflow, validation, readiness, and resilience tests."""
+    """Production inference workflow, validation, readiness, and structured evidence tests."""
 
     # -------------------------------------------------------------
     # 1. Health & Readiness Separation
@@ -31,10 +31,10 @@ class TestProductionInferenceWorkflow:
             assert data.get("model_loaded") is True or data.get("ready") is True
 
     # -------------------------------------------------------------
-    # 2. Real-Time Inference & Contract
+    # 2. Real-Time Inference, Contract & Backward Compatibility
     # -------------------------------------------------------------
     def test_assess_low_risk_transaction(self):
-        """Verify low-risk transaction produces ALLOW decision and LOW risk level."""
+        """Verify low-risk transaction produces ALLOW decision, empty evidence, and baseline summary."""
         payload = {
             "transaction_id": "txn_test_allow_01",
             "customer_id": "cust_test_01",
@@ -56,15 +56,24 @@ class TestProductionInferenceWorkflow:
         assert resp.status_code == 200
         data = resp.json()
 
+        # Core fields
         assert 0 <= data["risk_score"] <= 39
         assert data["decision"] == "ALLOW"
         assert data["risk_level"] == "LOW"
         assert 0.0 <= data["fraud_probability"] <= 0.39
-        assert isinstance(data["reasons"], list)
         assert data["transaction_id"] == "txn_test_allow_01"
 
+        # Backward compatibility
+        assert data["reasons"] == []
+
+        # Milestone 5 Evidence Layer
+        assert "evidence" in data
+        assert data["evidence"] == []
+        assert "analyst_summary" in data
+        assert "ALLOW" in data["analyst_summary"]
+
     def test_assess_high_risk_transaction(self):
-        """Verify high-risk attack transaction produces BLOCK decision with observable reasons."""
+        """Verify high-risk attack transaction produces BLOCK decision with structured evidence and reasons."""
         payload = {
             "transaction_id": "txn_test_block_01",
             "customer_id": "cust_test_02",
@@ -89,9 +98,27 @@ class TestProductionInferenceWorkflow:
         assert data["risk_score"] >= 70
         assert data["decision"] == "BLOCK"
         assert data["risk_level"] == "HIGH"
+
+        # Backward compatibility for reasons
         assert len(data["reasons"]) >= 4
         for r in data["reasons"]:
             assert r.startswith("Risk signal: ")
+
+        # Structured Evidence verification
+        assert "evidence" in data
+        assert len(data["evidence"]) >= 4
+        for item in data["evidence"]:
+            assert "code" in item
+            assert item["severity"] in ["HIGH", "MEDIUM", "LOW"]
+            assert "title" in item
+            assert "description" in item
+            assert "observed_value" in item
+            assert "reference_threshold" in item
+
+        # Analyst summary verification
+        assert "analyst_summary" in data
+        assert "BLOCK" in data["analyst_summary"]
+        assert "risk score" in data["analyst_summary"]
 
     # -------------------------------------------------------------
     # 3. Determinism
@@ -113,6 +140,8 @@ class TestProductionInferenceWorkflow:
             assert curr_resp["fraud_probability"] == first_resp["fraud_probability"]
             assert curr_resp["decision"] == first_resp["decision"]
             assert curr_resp["reasons"] == first_resp["reasons"]
+            assert curr_resp["evidence"] == first_resp["evidence"]
+            assert curr_resp["analyst_summary"] == first_resp["analyst_summary"]
 
     # -------------------------------------------------------------
     # 4. Strict Input Validation (HTTP 422)

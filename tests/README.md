@@ -1,6 +1,6 @@
 # RISK-X Test Suite
 
-Comprehensive automated test suite covering Backend APIs, ML risk detection pipelines, and the Deterministic Risk Scoring & Decision Engine.
+Comprehensive automated test suite covering Backend APIs, ML risk detection pipelines, Deterministic Risk Scoring, Policy Decisioning, and the Structured Evidence & Explainability Layer.
 
 ---
 
@@ -10,18 +10,19 @@ Comprehensive automated test suite covering Backend APIs, ML risk detection pipe
 tests/
 ├── backend/
 │   ├── __init__.py
-│   └── test_health.py        # Health endpoint & root API availability tests
+│   └── test_health.py          # Health endpoint & root API availability tests
 ├── engine/
 │   ├── __init__.py
-│   ├── test_scoring.py       # Probability to 0-100 score mapping & validation tests
-│   ├── test_decision.py      # ALLOW / REVIEW / BLOCK policy threshold boundary tests
-│   ├── test_reasons.py       # Explainable risk signal extractor tests
+│   ├── test_scoring.py         # Probability to 0-100 score mapping & validation tests
+│   ├── test_decision.py        # ALLOW / REVIEW / BLOCK policy threshold boundary tests
+│   ├── test_reasons.py         # Explainable risk signal extractor tests
+│   ├── test_evidence.py        # Structured evidence extraction, severity ranking, & summaries
 │   └── test_api_integration.py # FastAPI /api/v1/risk/assess end-to-end integration tests
 ├── ml_detector/
-│   ├── test_split.py         # Chronological temporal splitting & zero leakage tests
-│   ├── test_features.py      # Feature engineering calculations & pipeline tests
-│   └── test_model.py         # Probability bounds & classifier tests
-├── conftest.py               # Root path resolution
+│   ├── test_split.py           # Chronological temporal splitting & zero leakage tests
+│   ├── test_features.py        # Feature engineering calculations & pipeline tests
+│   └── test_model.py           # Probability bounds & classifier tests
+├── conftest.py                 # Root path resolution
 └── README.md
 ```
 
@@ -38,7 +39,7 @@ pytest
 # Run tests with verbose output
 pytest -v
 
-# Run only Risk Engine tests
+# Run only Risk Engine & Evidence tests
 pytest tests/engine/ -v
 
 # Run only ML detector tests
