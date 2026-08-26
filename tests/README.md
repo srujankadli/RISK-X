@@ -1,6 +1,6 @@
 # RISK-X Test Suite
 
-Comprehensive automated test suite for backend APIs, ML pipelines, and decision rules.
+Comprehensive automated test suite covering Backend APIs and ML risk detection pipelines.
 
 ---
 
@@ -10,7 +10,12 @@ Comprehensive automated test suite for backend APIs, ML pipelines, and decision 
 tests/
 ├── backend/
 │   ├── __init__.py
-│   └── test_health.py    # Health endpoint and API availability tests
+│   └── test_health.py        # Health endpoint & root API availability tests
+├── ml_detector/
+│   ├── test_split.py         # Chronological temporal splitting & zero leakage tests
+│   ├── test_features.py      # Feature engineering calculations & pipeline tests
+│   └── test_model.py         # Probability bounds & classifier tests
+├── conftest.py               # Root path resolution
 └── README.md
 ```
 
@@ -21,9 +26,15 @@ tests/
 From the project root:
 
 ```bash
-# Run all tests
+# Run all tests across backend and ML
 pytest
 
-# Run backend unit tests with verbose output
+# Run tests with verbose output
+pytest -v
+
+# Run only ML detector tests
+pytest tests/ml_detector/ -v
+
+# Run only Backend tests
 pytest tests/backend/ -v
 ```
