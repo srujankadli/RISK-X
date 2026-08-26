@@ -91,7 +91,11 @@ class RiskEngineService:
             }
 
     def assess_transaction(
-        self, transaction: Union[TransactionAssessmentRequest, Dict[str, Any]]
+        self,
+        transaction: Union[TransactionAssessmentRequest, Dict[str, Any]],
+        persist: bool = True,
+        source: str = "api",
+        idempotency_key: Optional[str] = None,
     ) -> RiskAssessmentResponse:
         """
         Executes end-to-end risk assessment for an incoming transaction:
@@ -102,9 +106,13 @@ class RiskEngineService:
         5. Evaluates ALLOW / REVIEW / BLOCK decision policy
         6. Extracts explainable risk reasons & structured evidence items
         7. Synthesizes concise analyst-facing narrative summary
+        8. Persists assessment result to transaction ledger
 
         Args:
             transaction: Transaction data payload (Request schema or dictionary).
+            persist: If True, persists the transaction record to SQLite ledger.
+            source: Ingestion source channel ('api', 'webhook', etc.).
+            idempotency_key: Optional deduplication key.
 
         Returns:
             RiskAssessmentResponse with score, decision, risk level, reasons, evidence, and analyst summary.
@@ -154,6 +162,39 @@ class RiskEngineService:
         # Step 7: Analyst explanation summary
         analyst_summary = generate_analyst_summary(evidence_items, decision.value, risk_score)
 
+        txn_id = raw_dict.get("transaction_id")
+
+        # Step 8: Optional persistence to SQLite transaction repository
+        if persist:
+            try:
+                import uuid
+                from app.db.repository import get_transaction_repository
+                repo = get_transaction_repository()
+                effective_id = txn_id or f"txn_{uuid.uuid4().hex[:12]}"
+                repo.save_transaction(
+                    transaction_id=effective_id,
+                    amount=float(raw_dict.get("amount", 0.0)),
+                    customer_avg_amount=float(raw_dict.get("customer_avg_amount", 0.0)),
+                    payment_method=str(raw_dict.get("payment_method", "card")),
+                    risk_score=risk_score,
+                    fraud_probability=round(fraud_prob, 4),
+                    decision=decision.value,
+                    risk_level=risk_level.value,
+                    reasons=reasons,
+                    evidence=[e.model_dump() for e in schema_evidence],
+                    raw_request=raw_dict,
+                    customer_id=raw_dict.get("customer_id"),
+                    merchant_id=raw_dict.get("merchant_id"),
+                    analyst_summary=analyst_summary,
+                    source=source,
+                    idempotency_key=idempotency_key,
+                )
+                if not txn_id:
+                    txn_id = effective_id
+            except Exception:
+                # Ensure inference continues even if optional DB logging encounters an issue
+                pass
+
         return RiskAssessmentResponse(
             risk_score=risk_score,
             fraud_probability=round(fraud_prob, 4),
@@ -162,7 +203,7 @@ class RiskEngineService:
             reasons=reasons,
             evidence=schema_evidence,
             analyst_summary=analyst_summary,
-            transaction_id=raw_dict.get("transaction_id"),
+            transaction_id=txn_id,
         )
 
 

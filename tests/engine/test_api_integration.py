@@ -209,3 +209,47 @@ class TestProductionInferenceWorkflow:
         readiness = faulty_service.check_readiness()
         assert readiness["ready"] is False
         assert "not found" in readiness["error"].lower()
+
+    # -------------------------------------------------------------
+    # 6. Transaction Ledger & Statistics APIs
+    # -------------------------------------------------------------
+    def test_transaction_ledger_and_stats_apis(self):
+        """Verify transaction history and risk stats endpoints."""
+        # Assess a transaction first
+        txn_payload = {
+            "transaction_id": "txn_ledger_test_99",
+            "amount": 1200.0,
+            "payment_method": "upi",
+            "customer_avg_amount": 1000.0,
+        }
+        assess_resp = client.post("/api/v1/risk/assess", json=txn_payload)
+        assert assess_resp.status_code == 200
+
+        # Query history
+        hist_resp = client.get("/api/v1/transactions?limit=10")
+        assert hist_resp.status_code == 200
+        hist_data = hist_resp.json()
+        assert "items" in hist_data
+        assert "total" in hist_data
+        assert hist_data["total"] >= 1
+        assert any(item["transaction_id"] == "txn_ledger_test_99" for item in hist_data["items"])
+
+        # Query specific transaction
+        detail_resp = client.get("/api/v1/transactions/txn_ledger_test_99")
+        assert detail_resp.status_code == 200
+        detail_data = detail_resp.json()
+        assert detail_data["transaction_id"] == "txn_ledger_test_99"
+        assert detail_data["amount"] == 1200.0
+
+        # Query stats
+        stats_resp = client.get("/api/v1/transactions/stats")
+        assert stats_resp.status_code == 200
+        stats_data = stats_resp.json()
+        assert stats_data["total_transactions"] >= 1
+        assert "allow_rate" in stats_data
+        assert "block_rate" in stats_data
+
+    def test_nonexistent_transaction_returns_404(self):
+        """Verify querying unknown transaction ID returns 404."""
+        resp = client.get("/api/v1/transactions/non_existent_txn_id_12345")
+        assert resp.status_code == 404

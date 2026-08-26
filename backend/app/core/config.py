@@ -17,6 +17,10 @@ class Settings(BaseSettings):
         "http://localhost:3000",
     ]
 
+    # Database & Webhook Configuration
+    DATABASE_PATH: str = "data/risk_x.db"
+    RAZORPAY_WEBHOOK_SECRET: str = "risk_x_buildathon_secret_2026"
+
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=".env",
