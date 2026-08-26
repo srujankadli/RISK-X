@@ -8,9 +8,15 @@ policy decisioning, structured evidence extraction, and analyst explanation gene
 from enum import Enum
 import os
 from pathlib import Path
+import sys
 from typing import Any, Dict, Optional, Union
 import joblib
 import pandas as pd
+
+# Resolve project root and ensure it is on sys.path for `ml` package deserialization
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from app.engine.scoring import calculate_risk_score
 from app.engine.decision import evaluate_decision, Decision, RiskLevel
@@ -25,8 +31,6 @@ from app.schemas.risk import (
     EvidenceSeverityEnum,
 )
 
-# Resolve default model artifact paths relative to project root
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 DEFAULT_MODEL_PATH = ROOT_DIR / "ml" / "models" / "random_forest_detector.joblib"
 DEFAULT_PREPROCESSOR_PATH = ROOT_DIR / "ml" / "models" / "preprocessor.joblib"
 

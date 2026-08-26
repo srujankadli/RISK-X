@@ -1,5 +1,13 @@
 """RISK-X Backend Main Application Entrypoint."""
 
+import sys
+from pathlib import Path
+
+# Ensure repository root is on sys.path for ML package artifact deserialization
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
