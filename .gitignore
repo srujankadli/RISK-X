@@ -61,6 +61,11 @@ data/processed/*
 !data/processed/.gitkeep
 ml/models/*
 !ml/models/.gitkeep
+!ml/models/random_forest_detector.joblib
+!ml/models/preprocessor.joblib
+!ml/models/logistic_regression_baseline.joblib
+!ml/models/evaluation_metrics.json
+!ml/models/training_summary.json
 
 # IDEs and OS Files
 .idea/

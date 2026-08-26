@@ -1,0 +1,106 @@
+{
+  "model": "RandomForestClassifier",
+  "threshold": 0.6,
+  "metrics": {
+    "precision": 0.8814432989690721,
+    "recall": 0.8658227848101265,
+    "f1": 0.8735632183908046,
+    "roc_auc": 0.9924447928451172,
+    "pr_auc": 0.9255298116045307,
+    "fpr": 0.006474313863476425,
+    "tp": 342,
+    "fp": 46,
+    "tn": 7059,
+    "fn": 53
+  },
+  "cost_simulation": {
+    "disclaimer": "Simulation assumptions \u2014 not actual Razorpay costs.",
+    "unit_fp_cost_inr": 250.0,
+    "unit_fn_cost_inr": 2500.0,
+    "total_fp_cost_inr": 11500.0,
+    "total_fn_cost_inr": 132500.0,
+    "combined_error_cost_inr": 144000.0
+  },
+  "feature_importances": [
+    {
+      "feature": "payment_method_card",
+      "importance": 0.1727079644737736
+    },
+    {
+      "feature": "amount_to_customer_avg_ratio",
+      "importance": 0.17202777992449242
+    },
+    {
+      "feature": "payment_method_upi",
+      "importance": 0.1216567062330367
+    },
+    {
+      "feature": "transactions_last_10min",
+      "importance": 0.07905397621190711
+    },
+    {
+      "feature": "velocity_ratio",
+      "importance": 0.07372393205289846
+    },
+    {
+      "feature": "failed_attempts",
+      "importance": 0.05786170517345739
+    },
+    {
+      "feature": "log_amount",
+      "importance": 0.05722728726504157
+    },
+    {
+      "feature": "amount",
+      "importance": 0.05406202421874365
+    },
+    {
+      "feature": "transactions_last_1hr",
+      "importance": 0.04897048223704889
+    },
+    {
+      "feature": "is_unusual_location",
+      "importance": 0.04815601005088897
+    },
+    {
+      "feature": "is_new_device",
+      "importance": 0.031132817651730493
+    },
+    {
+      "feature": "customer_avg_amount",
+      "importance": 0.029998305669556292
+    },
+    {
+      "feature": "payment_method_netbanking",
+      "importance": 0.022229630980189166
+    },
+    {
+      "feature": "device_account_count",
+      "importance": 0.00881239194829413
+    },
+    {
+      "feature": "payment_method_wallet",
+      "importance": 0.008559121338839376
+    },
+    {
+      "feature": "device_reuse_ratio",
+      "importance": 0.005294145413039171
+    },
+    {
+      "feature": "previous_transaction_count",
+      "importance": 0.0037992961082772047
+    },
+    {
+      "feature": "account_age_days",
+      "importance": 0.0036459171718543765
+    },
+    {
+      "feature": "refund_count",
+      "importance": 0.0006593537826545814
+    },
+    {
+      "feature": "is_unusual_time",
+      "importance": 0.00042115209427639495
+    }
+  ]
+}
