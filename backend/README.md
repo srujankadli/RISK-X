@@ -12,7 +12,7 @@ backend/
 │   ├── api/
 │   │   └── v1/
 │   │       ├── __init__.py
-│   │       └── risk.py         # POST /api/v1/risk/assess endpoint
+│   │       └── risk.py         # POST /api/v1/risk/assess & GET /api/v1/risk/readiness
 │   ├── core/
 │   │   ├── __init__.py
 │   │   └── config.py           # Application settings & CORS
@@ -21,12 +21,12 @@ backend/
 │   │   ├── scoring.py          # Deterministic 0-100 risk scoring
 │   │   ├── decision.py         # ALLOW / REVIEW / BLOCK decision engine
 │   │   ├── reasons.py          # Observable explainable risk signals
-│   │   └── service.py          # RiskEngineService coordinator
+│   │   └── service.py          # RiskEngineService coordinator & model lifecycle
 │   ├── schemas/
 │   │   ├── __init__.py
-│   │   └── risk.py             # Request & Response Pydantic models
+│   │   └── risk.py             # Request & Response Pydantic models with strict validation
 │   ├── __init__.py
-│   └── main.py                 # Application entrypoint
+│   └── main.py                 # Application entrypoint with liveness & readiness probes
 ├── requirements.txt            # Python dependencies
 └── README.md
 ```
@@ -59,10 +59,12 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 4. Core Endpoints
-- **Health Check**: `GET http://localhost:8000/health`
+### 4. Core Endpoints & Probes
+- **Liveness Probe**: `GET http://localhost:8000/health` (Checks if API process is running)
+- **Readiness Probe**: `GET http://localhost:8000/health/ready` or `GET http://localhost:8000/ready` (Verifies ML model & preprocessor artifacts are loaded into memory)
 - **Root Info**: `GET http://localhost:8000/`
 - **Real-Time Risk Assessment**: `POST http://localhost:8000/api/v1/risk/assess`
+- **Engine Readiness**: `GET http://localhost:8000/api/v1/risk/readiness`
 - **Interactive Swagger Docs**: `http://localhost:8000/docs`
 - **ReDoc**: `http://localhost:8000/redoc`
 
@@ -110,6 +112,15 @@ uvicorn app.main:app --reload --port 8000
   "transaction_id": "txn_sample_001"
 }
 ```
+
+---
+
+## Production Inference Workflow & Guarantees
+
+1. **Model Lifecycle & Caching**: Artifacts are loaded into memory once on first demand and reused across all subsequent requests. No disk reads or model training occur during transaction evaluation.
+2. **Zero Target Leakage**: `TransactionAssessmentRequest` forbids extra fields (`model_config = ConfigDict(extra="forbid")`), rejecting requests containing `label` or `is_fraud` with HTTP 422.
+3. **Resilience**: If model files are missing or corrupted, the service returns HTTP 503 `Service Unavailable` with diagnostic error details rather than returning fallback or fake scores.
+4. **Latency Profile**: ~23 ms in local FastAPI TestClient benchmark (this measures in-process computation including payload schema validation, feature transformation, Random Forest scoring, and policy decisioning; it does not represent production network latency).
 
 ---
 

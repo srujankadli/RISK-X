@@ -1,9 +1,10 @@
 """RISK-X Backend Main Application Entrypoint."""
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.v1 import api_v1_router
+from app.engine.service import risk_service
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -28,23 +29,47 @@ app.include_router(api_v1_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 def root():
-    """Root endpoint returning service identity."""
+    """Root endpoint returning service identity and navigation links."""
     return {
         "service": settings.PROJECT_NAME,
         "description": settings.PROJECT_DESCRIPTION,
         "version": settings.VERSION,
         "docs": "/docs",
         "health": "/health",
+        "readiness": "/health/ready",
         "api_v1": settings.API_V1_STR,
     }
 
 
 @app.get("/health")
-def health_check():
-    """Health check endpoint indicating RISK-X backend operational status."""
+def health_liveness():
+    """Liveness probe: verifies that the FastAPI application process is running."""
     return {
         "status": "healthy",
         "service": settings.PROJECT_NAME,
         "version": settings.VERSION,
-        "message": "RISK-X backend is running and operational",
+        "message": "RISK-X backend process is operational",
+    }
+
+
+@app.get("/health/ready")
+@app.get("/ready")
+def health_readiness():
+    """Readiness probe: verifies that ML models and preprocessor artifacts are accessible and loaded."""
+    readiness = risk_service.check_readiness()
+    if not readiness["ready"]:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "status": "unready",
+                "message": "Model artifacts unavailable or failing to load",
+                "details": readiness,
+            },
+        )
+    return {
+        "status": "ready",
+        "service": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+        "model_loaded": readiness["model_loaded"],
+        "preprocessor_loaded": readiness["preprocessor_loaded"],
     }

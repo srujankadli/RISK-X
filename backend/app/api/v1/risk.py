@@ -1,7 +1,7 @@
 """
 RISK-X Risk Assessment API Endpoints
 ====================================
-FastAPI router for real-time transaction scoring and risk decisioning.
+FastAPI router for real-time transaction scoring, risk decisioning, and service readiness.
 """
 
 from fastapi import APIRouter, HTTPException, status
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/risk", tags=["Risk Assessment"])
     ),
 )
 def assess_transaction(payload: TransactionAssessmentRequest) -> RiskAssessmentResponse:
-    """Assess risk for a single payment transaction."""
+    """Assess risk for a single payment transaction in real time."""
     try:
         response = risk_service.assess_transaction(payload)
         return response
@@ -31,6 +31,11 @@ def assess_transaction(payload: TransactionAssessmentRequest) -> RiskAssessmentR
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Model artifacts unavailable: {str(e)}",
+        )
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Model artifact loading failure: {str(e)}",
         )
     except ValueError as e:
         raise HTTPException(
@@ -42,3 +47,20 @@ def assess_transaction(payload: TransactionAssessmentRequest) -> RiskAssessmentR
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Risk assessment failure: {str(e)}",
         )
+
+
+@router.get(
+    "/readiness",
+    status_code=status.HTTP_200_OK,
+    summary="Check ML risk engine readiness",
+    description="Verifies that ML model and preprocessor artifacts are accessible and loaded into memory.",
+)
+def risk_readiness():
+    """Readiness probe for the ML risk engine."""
+    readiness = risk_service.check_readiness()
+    if not readiness["ready"]:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=readiness,
+        )
+    return readiness

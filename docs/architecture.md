@@ -50,7 +50,7 @@ Transaction
 
 ### B. Machine Learning & Rules Layer (`ml/`)
 - **Deterministic Rules Engine**: Fast pre-screen checks executing in < 5ms.
-- **ML Classifier**: Trained on transaction features (amount, time of day, velocity, location disparity) providing calibrated risk probabilities.
+- **ML Classifier**: Trained on transaction features (amount, time of day, velocity, location disparity) providing Random Forest predicted fraud probabilities.
 
 ### C. Investigation & Evidence Layer (`investigations/`)
 - Aggregates multi-dimensional risk factors into an immutable **Evidence Package**.
