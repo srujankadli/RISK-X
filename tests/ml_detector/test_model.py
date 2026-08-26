@@ -43,7 +43,7 @@ def mini_train_data():
 
 
 def test_model_training_and_probability_bounds(mini_train_data):
-    """Verify model fits on preprocessed features and produces calibrated probabilities in [0, 1]."""
+    """Verify model fits on preprocessed features and produces output probabilities bounded in [0, 1]."""
     preprocessor = build_preprocessor()
     X_train = preprocessor.fit_transform(mini_train_data)
     y_train = mini_train_data["label"].values

@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.api.v1 import api_v1_router
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -21,6 +22,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register API v1 routes
+app.include_router(api_v1_router, prefix=settings.API_V1_STR)
+
 
 @app.get("/")
 def root():
@@ -31,6 +35,7 @@ def root():
         "version": settings.VERSION,
         "docs": "/docs",
         "health": "/health",
+        "api_v1": settings.API_V1_STR,
     }
 
 
