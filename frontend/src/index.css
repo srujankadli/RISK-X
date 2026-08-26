@@ -453,23 +453,17 @@ body {
    ========================================================================= */
 .spatial-theatre-layout {
   display: grid;
-  grid-template-columns: 330px minmax(440px, 1fr) 350px;
+  grid-template-columns: 340px minmax(440px, 1fr) 360px;
   gap: 1.25rem;
   align-items: start;
   width: 100%;
+  min-height: 0;
 }
 
 @media (max-width: 1360px) {
   .spatial-theatre-layout {
-    grid-template-columns: 300px minmax(400px, 1fr) 320px;
+    grid-template-columns: 310px minmax(390px, 1fr) 330px;
     gap: 1rem;
-  }
-}
-
-@media (max-width: 1140px) {
-  .spatial-theatre-layout {
-    grid-template-columns: 1fr;
-    gap: 1.5rem;
   }
 }
 
@@ -478,6 +472,56 @@ body {
   flex-direction: column;
   gap: 1.25rem;
   min-width: 0;
+  min-height: 0;
+}
+
+/* Independent Column Scrolling for Desktop Viewports */
+@media (min-width: 1141px) {
+  .theatre-wing.left-wing {
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 0.35rem;
+    position: sticky;
+    top: 1rem;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(56, 189, 248, 0.25) transparent;
+  }
+
+  .theatre-wing.right-wing {
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 0.35rem;
+    position: sticky;
+    top: 1rem;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(56, 189, 248, 0.25) transparent;
+  }
+
+  .theatre-center {
+    position: sticky;
+    top: 1rem;
+    align-self: start;
+  }
+}
+
+@media (max-width: 1140px) {
+  .spatial-theatre-layout {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .theatre-wing.left-wing,
+  .theatre-wing.right-wing {
+    max-height: none;
+    overflow-y: visible;
+    position: static;
+  }
+
+  .theatre-center {
+    position: static;
+  }
 }
 
 .theatre-center {
@@ -488,6 +532,26 @@ body {
   position: relative;
   width: 100%;
   min-width: 0;
+  min-height: 0;
+}
+
+/* Cyber Custom Scrollbar for independent wings */
+.theatre-wing::-webkit-scrollbar {
+  width: 5px;
+}
+
+.theatre-wing::-webkit-scrollbar-track {
+  background: rgba(6, 11, 24, 0.3);
+  border-radius: 4px;
+}
+
+.theatre-wing::-webkit-scrollbar-thumb {
+  background: rgba(56, 189, 248, 0.25);
+  border-radius: 4px;
+}
+
+.theatre-wing::-webkit-scrollbar-thumb:hover {
+  background: var(--color-cyan);
 }
 
 /* Cyber Panel Envelope */
