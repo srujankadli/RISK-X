@@ -35,6 +35,8 @@ backend/
 │   │   └── webhook.py          # Webhook payload, history items, and stats schemas
 │   ├── __init__.py
 │   └── main.py                 # Application entrypoint with liveness & readiness probes
+├── scripts/
+│   └── seed_demo_data.py       # Reset & seed SQLite database with realistic evaluated transactions
 ├── requirements.txt            # Python dependencies
 └── README.md
 ```
@@ -62,12 +64,21 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Start the Backend Server
+### 3. Initialize / Seed Demo Database
+```bash
+# Seed curated realistic transactions evaluated through the live model
+python scripts/seed_demo_data.py
+
+# Or reset to a clean, empty database:
+python scripts/seed_demo_data.py --clean
+```
+
+### 4. Start the Backend Server
 ```bash
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 4. Core Endpoints & Probes
+### 5. Core Endpoints & Probes
 - **Liveness Probe**: `GET http://localhost:8000/health` (Checks if API process is running)
 - **Readiness Probe**: `GET http://localhost:8000/health/ready` or `GET http://localhost:8000/ready` (Verifies ML model & preprocessor artifacts are loaded into memory)
 - **Root Info**: `GET http://localhost:8000/`
@@ -98,16 +109,16 @@ uvicorn app.main:app --reload --port 8000
   "payload": {
     "payment": {
       "entity": {
-        "id": "pay_O7yR9s8E3abc",
-        "amount": 280000,
+        "id": "pay_demo_7821",
+        "amount": 350000,
         "currency": "INR",
         "status": "authorized",
         "method": "card",
         "notes": {
-          "customer_id": "cust_retail_412",
-          "customer_avg_amount": "1000.0",
-          "account_age_days": "100",
-          "previous_transaction_count": "12",
+          "customer_id": "cust_hook_7821",
+          "customer_avg_amount": "1400.0",
+          "account_age_days": "60",
+          "previous_transaction_count": "5",
           "failed_attempts": "1",
           "is_new_device": "1",
           "is_unusual_time": "1"
@@ -123,16 +134,16 @@ uvicorn app.main:app --reload --port 8000
 {
   "status": "processed",
   "event": "payment.authorized",
-  "payment_id": "pay_O7yR9s8E3abc",
-  "transaction_id": "pay_O7yR9s8E3abc",
-  "amount_inr": 2800.0,
+  "payment_id": "pay_demo_7821",
+  "transaction_id": "pay_demo_7821",
+  "amount_inr": 3500.0,
   "decision": "REVIEW",
   "risk_score": 67,
   "risk_level": "MEDIUM",
   "fraud_probability": 0.6688,
   "idempotent_replay": false,
   "reasons": [
-    "Risk signal: transaction amount is significantly above customer historical average (2.8x higher).",
+    "Risk signal: transaction amount is significantly above customer historical average (2.5x higher).",
     "Risk signal: previous failed payment attempt recorded prior to authorization.",
     "Risk signal: payment initiated from an unrecognized/new device.",
     "Risk signal: transaction initiated during atypical customer activity hours."

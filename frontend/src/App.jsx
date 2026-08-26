@@ -21,8 +21,8 @@ const PRESETS = {
       is_new_device: 0,
       is_unusual_time: 0,
       is_unusual_location: 0,
-      transaction_id: 'txn_legit_1001',
-      customer_id: 'cust_retail_891',
+      transaction_id: 'txn_demo_001',
+      customer_id: 'cust_ind_1048',
     },
   },
   suspicious: {
@@ -43,8 +43,8 @@ const PRESETS = {
       is_new_device: 1,
       is_unusual_time: 1,
       is_unusual_location: 0,
-      transaction_id: 'txn_sus_2004',
-      customer_id: 'cust_retail_412',
+      transaction_id: 'txn_demo_004',
+      customer_id: 'cust_biz_3910',
     },
   },
   attack: {
@@ -65,8 +65,8 @@ const PRESETS = {
       is_new_device: 1,
       is_unusual_time: 1,
       is_unusual_location: 1,
-      transaction_id: 'txn_atk_9088',
-      customer_id: 'cust_target_092',
+      transaction_id: 'txn_demo_005',
+      customer_id: 'cust_ind_8402',
     },
   },
 }
@@ -92,7 +92,7 @@ export default function App() {
   const [stats, setStats] = useState(null)
 
   // Webhook Simulator state
-  const [webhookPaymentId, setWebhookPaymentId] = useState('pay_rzp_demo_8821')
+  const [webhookPaymentId, setWebhookPaymentId] = useState('pay_demo_7821')
   const [webhookAmount, setWebhookAmount] = useState(3500.0)
   const [webhookMethod, setWebhookMethod] = useState('card')
   const [webhookSecret, setWebhookSecret] = useState('risk_x_buildathon_secret_2026')
@@ -322,7 +322,7 @@ export default function App() {
             status: 'authorized',
             method: webhookMethod,
             notes: {
-              customer_id: 'cust_hook_sim_89',
+              customer_id: 'cust_hook_7821',
               customer_avg_amount: String(Math.round(webhookAmount * 0.4)),
               account_age_days: '60',
               previous_transaction_count: '5',
