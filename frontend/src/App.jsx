@@ -1,12 +1,14 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 const PRESETS = {
   normal: {
+    id: 'normal',
     name: 'Normal Transaction',
     icon: '🟢',
-    description: 'Benign baseline payment from established customer',
+    badge: 'BENIGN BASELINE',
+    description: 'Benign baseline payment from established customer with clean history.',
     data: {
       amount: 450.0,
       customer_avg_amount: 500.0,
@@ -26,9 +28,11 @@ const PRESETS = {
     },
   },
   suspicious: {
-    name: 'Suspicious Activity',
+    id: 'suspicious',
+    name: 'Suspicious Velocity',
     icon: '🟡',
-    description: 'Moderate amount elevation, 1 failed retry & new device in off-hours',
+    badge: 'STEP-UP REVIEW',
+    description: 'Moderate amount spike, 1 failed retry & unrecognized device in off-hours.',
     data: {
       amount: 2800.0,
       customer_avg_amount: 1000.0,
@@ -48,9 +52,11 @@ const PRESETS = {
     },
   },
   attack: {
+    id: 'attack',
     name: 'High-Risk Attack Cluster',
     icon: '🔴',
-    description: 'Severe amount spike, multiple failures, rapid velocity & device reuse',
+    badge: 'AUTOMATED BLOCK',
+    description: 'Severe amount spike (55x), 3 failed retries, rapid velocity & multi-account device association.',
     data: {
       amount: 55000.0,
       customer_avg_amount: 1000.0,
@@ -74,7 +80,7 @@ const PRESETS = {
 const DEFAULT_FORM = { ...PRESETS.normal.data }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('console') // 'console' | 'ledger' | 'webhook'
+  const [activeTab, setActiveTab] = useState('core') // 'core' | 'stream' | 'webhook'
   const [formData, setFormData] = useState(DEFAULT_FORM)
   const [loading, setLoading] = useState(false)
   const [readiness, setReadiness] = useState({ ready: false, checking: true, error: null })
@@ -83,6 +89,7 @@ export default function App() {
   const [validationErrors, setValidationErrors] = useState({})
   const [showJson, setShowJson] = useState(false)
   const [selectedPreset, setSelectedPreset] = useState('normal')
+  const [activeSignalIndex, setActiveSignalIndex] = useState(null)
 
   // History ledger state
   const [historyItems, setHistoryItems] = useState([])
@@ -119,7 +126,7 @@ export default function App() {
       setReadiness({
         ready: false,
         checking: false,
-        error: `Cannot connect to backend at ${API_BASE}. Ensure uvicorn server is running.`,
+        error: `Cannot connect to backend at ${API_BASE}. Ensure backend server is running.`,
       })
     }
   }, [])
@@ -133,23 +140,23 @@ export default function App() {
         setStats(data)
       }
     } catch {
-      // Ignored if backend not ready
+      // Ignored if backend offline
     }
   }, [])
 
-  // Fetch transactions history ledger
+  // Fetch transactions history stream
   const fetchHistory = useCallback(async (decisionFilter = 'ALL') => {
     setHistoryLoading(true)
     try {
       const filterParam = decisionFilter !== 'ALL' ? `&decision=${decisionFilter}` : ''
-      const res = await fetch(`${API_BASE}/api/v1/transactions?limit=25${filterParam}`)
+      const res = await fetch(`${API_BASE}/api/v1/transactions?limit=30${filterParam}`)
       if (res.ok) {
         const data = await res.json()
         setHistoryItems(data.items || [])
         setHistoryTotal(data.total || 0)
       }
     } catch (e) {
-      console.error('Failed to fetch history:', e)
+      console.error('Failed to fetch transaction stream:', e)
     } finally {
       setHistoryLoading(false)
     }
@@ -158,15 +165,16 @@ export default function App() {
   useEffect(() => {
     checkReadiness()
     fetchStats()
+    fetchHistory('ALL')
     const timer = setInterval(() => {
       checkReadiness()
       fetchStats()
     }, 8000)
     return () => clearInterval(timer)
-  }, [checkReadiness, fetchStats])
+  }, [checkReadiness, fetchStats, fetchHistory])
 
   useEffect(() => {
-    if (activeTab === 'ledger') {
+    if (activeTab === 'stream') {
       fetchHistory(historyFilter)
     }
   }, [activeTab, historyFilter, fetchHistory])
@@ -190,6 +198,7 @@ export default function App() {
     setFormData({ ...PRESETS[presetKey].data })
     setError(null)
     setValidationErrors({})
+    setActiveSignalIndex(null)
   }
 
   const validateForm = () => {
@@ -222,6 +231,7 @@ export default function App() {
 
     setLoading(true)
     setError(null)
+    setActiveSignalIndex(null)
 
     const payload = {
       amount: parseFloat(formData.amount),
@@ -265,7 +275,8 @@ export default function App() {
 
       const data = await response.json()
       setResult(data)
-      fetchStats() // refresh stats
+      fetchStats()
+      fetchHistory(historyFilter)
     } catch (err) {
       setError(err.message || 'Failed to communicate with RISK-X assessment backend.')
       setResult(null)
@@ -285,7 +296,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [formData])
 
-  // Select a transaction from history to inspect in Cockpit
+  // Select a transaction from history stream to inspect in the central Risk Core
   const inspectHistoryItem = (item) => {
     setResult({
       risk_score: item.risk_score,
@@ -296,8 +307,24 @@ export default function App() {
       evidence: item.evidence || [],
       analyst_summary: item.analyst_summary,
       transaction_id: item.transaction_id,
+      amount: item.amount,
+      customer_id: item.customer_id,
+      payment_method: item.payment_method,
+      source: item.source,
+      created_at: item.created_at,
     })
-    setActiveTab('console')
+    // Also populate form with available raw parameters
+    if (item.raw_request) {
+      setFormData((prev) => ({
+        ...prev,
+        amount: item.amount || prev.amount,
+        customer_avg_amount: item.customer_avg_amount || prev.customer_avg_amount,
+        payment_method: item.payment_method || prev.payment_method,
+        transaction_id: item.transaction_id,
+        customer_id: item.customer_id || prev.customer_id,
+      }))
+    }
+    setActiveTab('core')
   }
 
   // Webhook Simulator submit
@@ -307,7 +334,6 @@ export default function App() {
     setWebhookError(null)
     setWebhookResult(null)
 
-    // Build standard Razorpay event payload
     const payload = {
       entity: 'event',
       account_id: 'acc_buildathon_rzp_01',
@@ -338,7 +364,6 @@ export default function App() {
     const bodyText = JSON.stringify(payload)
 
     try {
-      // Compute HMAC-SHA256 signature in browser
       const encoder = new TextEncoder()
       const keyData = encoder.encode(webhookSecret)
       const msgData = encoder.encode(bodyText)
@@ -370,6 +395,7 @@ export default function App() {
 
       setWebhookResult(data)
       fetchStats()
+      fetchHistory(historyFilter)
     } catch (err) {
       setWebhookError(err.message || 'Webhook transmission failed.')
     } finally {
@@ -377,692 +403,963 @@ export default function App() {
     }
   }
 
+  // Active decision state for theme transitions
+  const activeDecision = result?.decision?.toLowerCase() || 'neutral'
+  const activeRiskScore = result?.risk_score ?? '--'
+
+  // Severity metrics calculation for telemetry
+  const severityCounts = useMemo(() => {
+    if (!result?.evidence) return { high: 0, medium: 0, low: 0 }
+    return result.evidence.reduce(
+      (acc, curr) => {
+        const sev = (curr.severity || '').toLowerCase()
+        if (sev === 'high') acc.high++
+        else if (sev === 'medium') acc.medium++
+        else if (sev === 'low') acc.low++
+        return acc
+      },
+      { high: 0, medium: 0, low: 0 }
+    )
+  }, [result])
+
   return (
-    <div className="app-container">
-      {/* Top Navbar */}
-      <header className="navbar">
-        <div className="brand-group">
-          <div className="brand-badge">
-            <span className="pulse-indicator"></span>
-            <span className="brand-title">RISK-X</span>
-          </div>
-          <span className="brand-sub">Risk Investigation System X</span>
-        </div>
+    <div className={`space-stage theme-${activeDecision}`}>
+      {/* Background Spatial Grid and Glow Effects */}
+      <div className="spatial-bg-grid" aria-hidden="true"></div>
+      <div className="spatial-core-glow" aria-hidden="true"></div>
 
-        {/* View Navigation Tabs */}
-        <nav className="nav-tabs">
-          <button
-            type="button"
-            className={`tab-btn ${activeTab === 'console' ? 'active' : ''}`}
-            onClick={() => setActiveTab('console')}
-          >
-            ⚡ Assessment Console
-          </button>
-          <button
-            type="button"
-            className={`tab-btn ${activeTab === 'ledger' ? 'active' : ''}`}
-            onClick={() => setActiveTab('ledger')}
-          >
-            📋 Audit Ledger ({stats?.total_transactions || historyTotal})
-          </button>
-          <button
-            type="button"
-            className={`tab-btn ${activeTab === 'webhook' ? 'active' : ''}`}
-            onClick={() => setActiveTab('webhook')}
-          >
-            🔗 Razorpay Webhooks
-          </button>
-        </nav>
-
-        <div className="header-meta">
-          <div className="buildathon-tag">Razorpay Buildathon 2026</div>
-          <div className={`readiness-pill ${readiness.ready ? 'ready' : 'unready'}`}>
-            <span className="status-dot"></span>
-            {readiness.checking
-              ? 'Checking Engine...'
-              : readiness.ready
-              ? 'ML Detector Online'
-              : 'Engine Offline'}
-          </div>
-        </div>
-      </header>
-
-      {/* Aggregate KPI Stats Ribbon */}
-      {stats && stats.total_transactions > 0 && (
-        <section className="stats-ribbon">
-          <div className="stat-card">
-            <span className="stat-label">Total Transactions</span>
-            <span className="stat-val">{stats.total_transactions}</span>
-          </div>
-          <div className="stat-card allow">
-            <span className="stat-label">ALLOW Rate</span>
-            <span className="stat-val">{stats.allow_rate}% <small>({stats.allow_count})</small></span>
-          </div>
-          <div className="stat-card review">
-            <span className="stat-label">REVIEW Rate</span>
-            <span className="stat-val">{stats.review_rate}% <small>({stats.review_count})</small></span>
-          </div>
-          <div className="stat-card block">
-            <span className="stat-label">BLOCK Rate</span>
-            <span className="stat-val">{stats.block_rate}% <small>({stats.block_count})</small></span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-label">Avg Risk Score</span>
-            <span className="stat-val">{stats.average_risk_score} <small>/ 100</small></span>
-          </div>
-        </section>
-      )}
-
-      {/* TAB 1: Real-Time Assessment Console & Cockpit */}
-      {activeTab === 'console' && (
-        <main className="dashboard-grid">
-          {/* Left Column: Transaction Input Console */}
-          <section className="console-panel">
-            <div className="panel-header">
-              <div>
-                <h2>Transaction Assessment Console</h2>
-                <p className="panel-sub">Configure observable payment parameters or load audit scenarios.</p>
+      <div className="app-container">
+        {/* =========================================================================
+            1. TOP SYSTEM BAR (Futuristic HUD)
+           ========================================================================= */}
+        <header className="system-hud-bar">
+          <div className="brand-zone">
+            <div className="brand-emblem">
+              <div className="emblem-hex">
+                <span className="emblem-core"></span>
+              </div>
+              <div className="brand-text-block">
+                <div className="brand-heading">
+                  <span className="brand-title">RISK-X</span>
+                  <span className="brand-subtag">INTELLIGENCE CORE</span>
+                </div>
+                <span className="brand-dept">Payment Risk Investigation & Response</span>
               </div>
             </div>
+          </div>
 
-            {/* Quick Presets Bar */}
-            <div className="presets-wrapper">
-              <span className="presets-label">Scenarios:</span>
-              <div className="presets-btn-group">
-                {Object.entries(PRESETS).map(([key, p]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    className={`preset-btn ${selectedPreset === key ? 'active' : ''}`}
-                    onClick={() => loadPreset(key)}
-                    title={p.description}
-                  >
-                    <span className="preset-icon">{p.icon}</span>
-                    <span className="preset-name">{p.name}</span>
-                  </button>
-                ))}
-              </div>
+          {/* Center: System Status Diagnostics */}
+          <div className="system-diagnostics">
+            <div className="diag-item">
+              <span className="diag-label">SYSTEM:</span>
+              <span className={`diag-pill ${readiness.ready ? 'online' : 'offline'}`}>
+                <span className="status-ping"></span>
+                {readiness.checking ? 'PROBING...' : readiness.ready ? 'ENGINE ONLINE' : 'ENGINE OFFLINE'}
+              </span>
             </div>
+            <div className="diag-item">
+              <span className="diag-label">MODEL:</span>
+              <span className="diag-val">RANDOM FOREST</span>
+            </div>
+            <div className="diag-item">
+              <span className="diag-label">STORAGE:</span>
+              <span className="diag-val">SQLITE WAL</span>
+            </div>
+            <div className="diag-item hide-mobile">
+              <span className="diag-label">EVENT:</span>
+              <span className="diag-tag">RAZORPAY 2026</span>
+            </div>
+          </div>
 
-            <form onSubmit={handleAssess} className="assessment-form">
-              {/* Fieldset 1: Financial Details */}
-              <div className="form-section">
-                <h3 className="section-title">
-                  <span className="section-num">1</span> Financial & Payment Rail
-                </h3>
-                <div className="form-row two-col">
-                  <div className="input-group">
-                    <label htmlFor="amount">Transaction Amount (INR) *</label>
-                    <div className="input-affix-wrapper">
-                      <span className="input-prefix">₹</span>
-                      <input
-                        id="amount"
-                        type="number"
-                        step="0.01"
-                        min="0.01"
-                        required
-                        value={formData.amount}
-                        onChange={(e) => handleInputChange('amount', e.target.value)}
-                        className={validationErrors.amount ? 'invalid' : ''}
-                      />
-                    </div>
-                    {validationErrors.amount && (
-                      <span className="field-error">{validationErrors.amount}</span>
-                    )}
-                  </div>
+          {/* Right: Spatial Nav Tabs */}
+          <nav className="spatial-nav-tabs">
+            <button
+              type="button"
+              className={`nav-pill ${activeTab === 'core' ? 'active' : ''}`}
+              onClick={() => setActiveTab('core')}
+            >
+              <span className="nav-icon">🛡️</span>
+              <span>Risk Core</span>
+            </button>
+            <button
+              type="button"
+              className={`nav-pill ${activeTab === 'stream' ? 'active' : ''}`}
+              onClick={() => setActiveTab('stream')}
+            >
+              <span className="nav-icon">📊</span>
+              <span>Live Stream ({stats?.total_transactions || historyTotal})</span>
+            </button>
+            <button
+              type="button"
+              className={`nav-pill ${activeTab === 'webhook' ? 'active' : ''}`}
+              onClick={() => setActiveTab('webhook')}
+            >
+              <span className="nav-icon">⚡</span>
+              <span>Webhook Link</span>
+            </button>
+          </nav>
+        </header>
 
-                  <div className="input-group">
-                    <label htmlFor="customer_avg_amount">Customer Avg Amount (INR)</label>
-                    <div className="input-affix-wrapper">
-                      <span className="input-prefix">₹</span>
-                      <input
-                        id="customer_avg_amount"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={formData.customer_avg_amount}
-                        onChange={(e) => handleInputChange('customer_avg_amount', e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="form-row">
-                  <div className="input-group">
-                    <label htmlFor="payment_method">Payment Method Rail</label>
-                    <select
-                      id="payment_method"
-                      value={formData.payment_method}
-                      onChange={(e) => handleInputChange('payment_method', e.target.value)}
-                    >
-                      <option value="upi">UPI (Unified Payments Interface)</option>
-                      <option value="card">Credit / Debit Card</option>
-                      <option value="netbanking">Internet Net Banking</option>
-                      <option value="wallet">Digital Wallet</option>
-                    </select>
-                  </div>
-                </div>
+        {/* =========================================================================
+            2. TELEMETRY KPI RIBBON
+           ========================================================================= */}
+        {stats && (
+          <section className="telemetry-ribbon" aria-label="System Telemetry">
+            <div className="telemetry-node">
+              <span className="tel-label">Total Transactions</span>
+              <span className="tel-value">{stats.total_transactions}</span>
+            </div>
+            <div className="telemetry-node node-allow">
+              <span className="tel-label">ALLOW Rate</span>
+              <span className="tel-value">
+                {stats.allow_rate}% <small>({stats.allow_count})</small>
+              </span>
+            </div>
+            <div className="telemetry-node node-review">
+              <span className="tel-label">REVIEW Rate</span>
+              <span className="tel-value">
+                {stats.review_rate}% <small>({stats.review_count})</small>
+              </span>
+            </div>
+            <div className="telemetry-node node-block">
+              <span className="tel-label">BLOCK Rate</span>
+              <span className="tel-value">
+                {stats.block_rate}% <small>({stats.block_count})</small>
+              </span>
+            </div>
+            <div className="telemetry-node node-score">
+              <span className="tel-label">Average Risk Score</span>
+              <span className="tel-value">
+                {stats.average_risk_score} <small>/ 100</small>
+              </span>
+            </div>
+            {result && (
+              <div className="telemetry-node node-matrix hide-tablet">
+                <span className="tel-label">Signal Matrix</span>
+                <span className="tel-matrix-breakdown">
+                  <span className="mat-high">{severityCounts.high}H</span>
+                  <span className="mat-med">{severityCounts.medium}M</span>
+                  <span className="mat-low">{severityCounts.low}L</span>
+                </span>
               </div>
-
-              {/* Fieldset 2: Account History */}
-              <div className="form-section">
-                <h3 className="section-title">
-                  <span className="section-num">2</span> Account & Historical Profile
-                </h3>
-                <div className="form-row three-col">
-                  <div className="input-group">
-                    <label htmlFor="account_age_days">Account Age (Days)</label>
-                    <input
-                      id="account_age_days"
-                      type="number"
-                      min="0"
-                      value={formData.account_age_days}
-                      onChange={(e) => handleInputChange('account_age_days', e.target.value)}
-                    />
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="previous_transaction_count">Prior Successful Txns</label>
-                    <input
-                      id="previous_transaction_count"
-                      type="number"
-                      min="0"
-                      value={formData.previous_transaction_count}
-                      onChange={(e) => handleInputChange('previous_transaction_count', e.target.value)}
-                    />
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="refund_count">Historical Refunds</label>
-                    <input
-                      id="refund_count"
-                      type="number"
-                      min="0"
-                      value={formData.refund_count}
-                      onChange={(e) => handleInputChange('refund_count', e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Fieldset 3: Velocity & Friction */}
-              <div className="form-section">
-                <h3 className="section-title">
-                  <span className="section-num">3</span> Immediate Velocity & Failed Attempts
-                </h3>
-                <div className="form-row three-col">
-                  <div className="input-group">
-                    <label htmlFor="transactions_last_10min">Txns Last 10 Min</label>
-                    <input
-                      id="transactions_last_10min"
-                      type="number"
-                      min="0"
-                      value={formData.transactions_last_10min}
-                      onChange={(e) => handleInputChange('transactions_last_10min', e.target.value)}
-                    />
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="transactions_last_1hr">Txns Last 1 Hour</label>
-                    <input
-                      id="transactions_last_1hr"
-                      type="number"
-                      min="0"
-                      value={formData.transactions_last_1hr}
-                      onChange={(e) => handleInputChange('transactions_last_1hr', e.target.value)}
-                    />
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="failed_attempts">Failed Retries</label>
-                    <input
-                      id="failed_attempts"
-                      type="number"
-                      min="0"
-                      value={formData.failed_attempts}
-                      onChange={(e) => handleInputChange('failed_attempts', e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Fieldset 4: Device & Environment */}
-              <div className="form-section">
-                <h3 className="section-title">
-                  <span className="section-num">4</span> Device & Environmental Signals
-                </h3>
-                <div className="form-row two-col">
-                  <div className="input-group">
-                    <label htmlFor="device_account_count">Device Associated Accounts</label>
-                    <input
-                      id="device_account_count"
-                      type="number"
-                      min="1"
-                      value={formData.device_account_count}
-                      onChange={(e) => handleInputChange('device_account_count', e.target.value)}
-                    />
-                  </div>
-                  <div className="toggles-group">
-                    <label className="toggle-label">
-                      <input
-                        type="checkbox"
-                        checked={formData.is_new_device === 1}
-                        onChange={(e) => handleInputChange('is_new_device', e.target.checked ? 1 : 0)}
-                      />
-                      <span>Unrecognized / New Device</span>
-                    </label>
-                    <label className="toggle-label">
-                      <input
-                        type="checkbox"
-                        checked={formData.is_unusual_time === 1}
-                        onChange={(e) => handleInputChange('is_unusual_time', e.target.checked ? 1 : 0)}
-                      />
-                      <span>Atypical Active Hours</span>
-                    </label>
-                    <label className="toggle-label">
-                      <input
-                        type="checkbox"
-                        checked={formData.is_unusual_location === 1}
-                        onChange={(e) => handleInputChange('is_unusual_location', e.target.checked ? 1 : 0)}
-                      />
-                      <span>Unusual Location</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {/* Submit Button */}
-              <div className="form-actions">
-                <button
-                  type="submit"
-                  disabled={loading || !readiness.ready}
-                  className="submit-btn"
-                >
-                  {loading ? (
-                    <>
-                      <span className="spinner"></span>
-                      <span>Analyzing Risk via ML Engine...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Run Real-Time Risk Assessment</span>
-                      <kbd className="kbd-shortcut">Ctrl+Enter</kbd>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
+            )}
           </section>
+        )}
 
-          {/* Right Column: Assessment & Evidence Cockpit */}
-          <section className="cockpit-panel">
-            <div className="panel-header">
-              <div>
-                <h2>Risk Decision & Evidence Cockpit</h2>
-                <p className="panel-sub">Real-time model probability, deterministic score, and ranked signals.</p>
-              </div>
-            </div>
-
-            {/* Error Banner */}
-            {error && (
-              <div className="error-card">
-                <div className="error-icon">⚠️</div>
-                <div className="error-content">
-                  <h4>Assessment Error</h4>
-                  <p>{error}</p>
+        {/* =========================================================================
+            TAB 1: RISK CORE & SPATIAL INVESTIGATION STAGE
+           ========================================================================= */}
+        {activeTab === 'core' && (
+          <div className="spatial-theatre-layout">
+            {/* LEFT WING: Scenario Controls & Input Console */}
+            <aside className="theatre-wing left-wing">
+              {/* Scenario Control Deck */}
+              <div className="cyber-panel">
+                <div className="panel-hud-header">
+                  <span className="hud-corner-tag">SCENARIOS</span>
+                  <h3>Audit Scenarios</h3>
+                </div>
+                <div className="scenarios-deck">
+                  {Object.entries(PRESETS).map(([key, p]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className={`scenario-card ${selectedPreset === key ? 'selected' : ''}`}
+                      onClick={() => loadPreset(key)}
+                    >
+                      <div className="scenario-top">
+                        <span className="scenario-icon">{p.icon}</span>
+                        <span className="scenario-name">{p.name}</span>
+                      </div>
+                      <span className="scenario-badge">{p.badge}</span>
+                      <p className="scenario-desc">{p.description}</p>
+                    </button>
+                  ))}
                 </div>
               </div>
-            )}
 
-            {/* Loading Skeleton */}
-            {loading && (
-              <div className="skeleton-card">
-                <div className="skeleton-circle"></div>
-                <div className="skeleton-bar lg"></div>
-                <div className="skeleton-bar md"></div>
-                <div className="skeleton-bar sm"></div>
-              </div>
-            )}
-
-            {/* Pre-Assessment State */}
-            {!loading && !result && !error && (
-              <div className="placeholder-card">
-                <div className="placeholder-icon">🛡️</div>
-                <h3>No Assessment Executed Yet</h3>
-                <p>
-                  Configure payment attributes in the console or select a scenario preset,
-                  then click <strong>Run Real-Time Risk Assessment</strong>.
-                </p>
-                <div className="pipeline-mini">
-                  <span>API Payload</span> → <span>Feature Pipeline</span> → <span>Random Forest</span> → <span>0-100 Score</span> → <span>Policy</span>
+              {/* Assessment Form Console */}
+              <div className="cyber-panel">
+                <div className="panel-hud-header">
+                  <span className="hud-corner-tag">INPUT DECK</span>
+                  <h3>Transaction Parameters</h3>
                 </div>
-              </div>
-            )}
 
-            {/* Result View */}
-            {!loading && result && (
-              <div className="result-card">
-                {/* Decision & Score Header */}
-                <div className={`decision-hero ${result.decision.toLowerCase()}`}>
-                  <div className="score-meter-box">
-                    <div className="score-number">{result.risk_score}</div>
-                    <div className="score-scale">/ 100</div>
-                    <div className="score-label">Risk Score</div>
+                <form onSubmit={handleAssess} className="cyber-form">
+                  {/* Section 1: Financial */}
+                  <div className="form-group-box">
+                    <span className="box-title">1. Financial Rail</span>
+                    <div className="grid-2col">
+                      <div className="field-block">
+                        <label htmlFor="amount">Amount (INR) *</label>
+                        <div className="input-wrap">
+                          <span className="curr-sym">₹</span>
+                          <input
+                            id="amount"
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            required
+                            value={formData.amount}
+                            onChange={(e) => handleInputChange('amount', e.target.value)}
+                            className={validationErrors.amount ? 'invalid' : ''}
+                          />
+                        </div>
+                        {validationErrors.amount && (
+                          <span className="field-warn">{validationErrors.amount}</span>
+                        )}
+                      </div>
+
+                      <div className="field-block">
+                        <label htmlFor="customer_avg_amount">Customer Avg (INR)</label>
+                        <div className="input-wrap">
+                          <span className="curr-sym">₹</span>
+                          <input
+                            id="customer_avg_amount"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={formData.customer_avg_amount}
+                            onChange={(e) => handleInputChange('customer_avg_amount', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="field-block single-col">
+                      <label htmlFor="payment_method">Payment Rail</label>
+                      <select
+                        id="payment_method"
+                        value={formData.payment_method}
+                        onChange={(e) => handleInputChange('payment_method', e.target.value)}
+                      >
+                        <option value="upi">UPI (Unified Payments Interface)</option>
+                        <option value="card">Credit / Debit Card</option>
+                        <option value="netbanking">Net Banking</option>
+                        <option value="wallet">Digital Wallet</option>
+                      </select>
+                    </div>
                   </div>
 
-                  <div className="decision-info-box">
-                    <div className="badges-row">
-                      <span className={`decision-badge ${result.decision.toLowerCase()}`}>
-                        {result.decision}
+                  {/* Section 2: History & Account */}
+                  <div className="form-group-box">
+                    <span className="box-title">2. Account Profile</span>
+                    <div className="grid-3col">
+                      <div className="field-block">
+                        <label htmlFor="account_age_days">Account Days</label>
+                        <input
+                          id="account_age_days"
+                          type="number"
+                          min="0"
+                          value={formData.account_age_days}
+                          onChange={(e) => handleInputChange('account_age_days', e.target.value)}
+                        />
+                      </div>
+                      <div className="field-block">
+                        <label htmlFor="previous_transaction_count">Prior Txns</label>
+                        <input
+                          id="previous_transaction_count"
+                          type="number"
+                          min="0"
+                          value={formData.previous_transaction_count}
+                          onChange={(e) =>
+                            handleInputChange('previous_transaction_count', e.target.value)
+                          }
+                        />
+                      </div>
+                      <div className="field-block">
+                        <label htmlFor="refund_count">Refunds</label>
+                        <input
+                          id="refund_count"
+                          type="number"
+                          min="0"
+                          value={formData.refund_count}
+                          onChange={(e) => handleInputChange('refund_count', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 3: Velocity & Retries */}
+                  <div className="form-group-box">
+                    <span className="box-title">3. Velocity & Retries</span>
+                    <div className="grid-3col">
+                      <div className="field-block">
+                        <label htmlFor="transactions_last_10min">10m Velocity</label>
+                        <input
+                          id="transactions_last_10min"
+                          type="number"
+                          min="0"
+                          value={formData.transactions_last_10min}
+                          onChange={(e) =>
+                            handleInputChange('transactions_last_10min', e.target.value)
+                          }
+                        />
+                      </div>
+                      <div className="field-block">
+                        <label htmlFor="transactions_last_1hr">1h Velocity</label>
+                        <input
+                          id="transactions_last_1hr"
+                          type="number"
+                          min="0"
+                          value={formData.transactions_last_1hr}
+                          onChange={(e) => handleInputChange('transactions_last_1hr', e.target.value)}
+                        />
+                      </div>
+                      <div className="field-block">
+                        <label htmlFor="failed_attempts">Failed Retries</label>
+                        <input
+                          id="failed_attempts"
+                          type="number"
+                          min="0"
+                          value={formData.failed_attempts}
+                          onChange={(e) => handleInputChange('failed_attempts', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 4: Device & Signals */}
+                  <div className="form-group-box">
+                    <span className="box-title">4. Device & Environmental Signals</span>
+                    <div className="field-block single-col">
+                      <label htmlFor="device_account_count">Device Associated Accounts</label>
+                      <input
+                        id="device_account_count"
+                        type="number"
+                        min="1"
+                        value={formData.device_account_count}
+                        onChange={(e) => handleInputChange('device_account_count', e.target.value)}
+                      />
+                    </div>
+                    <div className="cyber-toggles">
+                      <label className="toggle-chip">
+                        <input
+                          type="checkbox"
+                          checked={formData.is_new_device === 1}
+                          onChange={(e) =>
+                            handleInputChange('is_new_device', e.target.checked ? 1 : 0)
+                          }
+                        />
+                        <span>New / Unseen Device</span>
+                      </label>
+                      <label className="toggle-chip">
+                        <input
+                          type="checkbox"
+                          checked={formData.is_unusual_time === 1}
+                          onChange={(e) =>
+                            handleInputChange('is_unusual_time', e.target.checked ? 1 : 0)
+                          }
+                        />
+                        <span>Atypical Hours</span>
+                      </label>
+                      <label className="toggle-chip">
+                        <input
+                          type="checkbox"
+                          checked={formData.is_unusual_location === 1}
+                          onChange={(e) =>
+                            handleInputChange('is_unusual_location', e.target.checked ? 1 : 0)
+                          }
+                        />
+                        <span>Unusual Location</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Assessment Execution Trigger */}
+                  <button
+                    type="submit"
+                    disabled={loading || !readiness.ready}
+                    className="cyber-assess-btn"
+                  >
+                    {loading ? (
+                      <span className="btn-glow-pulse">
+                        <span className="radar-spinner"></span>
+                        <span>Evaluating via Random Forest Engine...</span>
                       </span>
-                      <span className={`risk-level-badge ${result.risk_level.toLowerCase()}`}>
-                        {result.risk_level} RISK
+                    ) : (
+                      <span className="btn-content">
+                        <span>⚡ RUN RISK ASSESSMENT</span>
+                        <kbd className="key-hint">Ctrl+Enter</kbd>
+                      </span>
+                    )}
+                  </button>
+                </form>
+              </div>
+            </aside>
+
+            {/* CENTER STAGE: THE RISK CORE (Visual Focal Point) */}
+            <main className="theatre-center" aria-label="Risk Core Focal Stage">
+              {/* Error Notice */}
+              {error && (
+                <div className="cyber-alert-banner">
+                  <span className="alert-glyph">⚠️</span>
+                  <div className="alert-body">
+                    <strong>ASSESSMENT FAILURE</strong>
+                    <p>{error}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Central Risk Core Container */}
+              <div className={`risk-core-stage state-${activeDecision}`}>
+                {/* 1. TOP DOCK: Transaction Identity Banner */}
+                <div className="core-top-dock">
+                  <div className="core-identity-bar">
+                    <div className="id-chip">
+                      <span className="id-label">TXN:</span>
+                      <span className="id-val">
+                        {result?.transaction_id || formData.transaction_id || 'STANDBY'}
                       </span>
                     </div>
-                    <div className="rf-prob-text">
-                      <strong>RF Fraud Probability:</strong> {(result.fraud_probability * 100).toFixed(2)}% ({result.fraud_probability})
+                    <div className="id-chip">
+                      <span className="id-label">AMOUNT:</span>
+                      <span className="id-val amount-val">
+                        ₹{parseFloat(formData.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
                     </div>
-                    <div className="decision-meaning">
-                      {result.decision === 'ALLOW' && '✅ Frictionless low-risk approval. No step-up required.'}
-                      {result.decision === 'REVIEW' && '⚠️ Elevated risk. Recommended for 2FA step-up or analyst triage.'}
-                      {result.decision === 'BLOCK' && '🛑 High-risk attack profile. Automated transaction decline.'}
+                    <div className="id-chip">
+                      <span className="id-label">LEVEL:</span>
+                      <span className={`id-val risk-${(result?.risk_level || 'standby').toLowerCase()}`}>
+                        {result?.risk_level ? `${result.risk_level} RISK` : 'READY'}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Analyst Summary Callout */}
-                {result.analyst_summary && (
-                  <div className="analyst-summary-card">
-                    <div className="summary-title">
-                      <span className="summary-icon">📋</span>
-                      <strong>Analyst Summary</strong>
+                {/* 2. CENTER ORBITAL ARENA (Bounded & Centered) */}
+                <div className="core-orbital-arena">
+                  {/* Concentric Orbital Geometry Rings */}
+                  <div className="orbit-system" aria-hidden="true">
+                    <div className="orbit-ring ring-outer"></div>
+                    <div className="orbit-ring ring-middle"></div>
+                    <div className="orbit-ring ring-inner"></div>
+                    <div className="orbit-crosshair-h"></div>
+                    <div className="orbit-crosshair-v"></div>
+                  </div>
+
+                  {/* Central Luminous Sphere & Score Display */}
+                  <div className="core-sphere-anchor">
+                    <div className="core-luminous-orb">
+                      <div className="core-inner-glow"></div>
+                      <div className="core-scan-beam" aria-hidden="true"></div>
+
+                      <div className="core-content-hud">
+                        <span className="core-kicker">RISK SCORE</span>
+                        <div className="core-score-num">
+                          {loading ? (
+                            <span className="score-calculating">...</span>
+                          ) : (
+                            activeRiskScore
+                          )}
+                        </div>
+                        <span className="core-scale-tag">/ 100</span>
+
+                        {result && !loading && (
+                          <div className="core-decision-tag">
+                            <span className={`decision-pill pill-${activeDecision}`}>
+                              {result.decision}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <p className="summary-text">{result.analyst_summary}</p>
+                  </div>
+
+                  {/* Orbiting Satellite Evidence Nodes */}
+                  <div className="satellite-nodes-orbit" aria-label="Detected Risk Signal Nodes">
+                    {result && result.evidence && result.evidence.length > 0 ? (
+                      result.evidence.map((item, idx) => {
+                        const total = result.evidence.length
+                        // Distribute nodes evenly around the orbital sphere
+                        const angle = (idx / total) * 360 - 90
+                        const rad = (angle * Math.PI) / 180
+                        // Bounded orbital radii: fits completely inside arena on all viewports
+                        const rx = total <= 4 ? 155 : 170
+                        const ry = total <= 4 ? 115 : 125
+                        const x = Math.round(Math.cos(rad) * rx)
+                        const y = Math.round(Math.sin(rad) * ry)
+                        const isSelected = activeSignalIndex === idx
+
+                        return (
+                          <button
+                            key={item.code || idx}
+                            type="button"
+                            className={`satellite-node sev-${item.severity.toLowerCase()} ${isSelected ? 'active-node' : ''}`}
+                            style={{
+                              transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
+                            }}
+                            onClick={() => setActiveSignalIndex(isSelected ? null : idx)}
+                            title={`${item.title} (${item.severity})`}
+                          >
+                            <span className="node-beacon"></span>
+                            <div className="node-cardlet">
+                              <span className="node-sev-tag">{item.severity}</span>
+                              <span className="node-title">{item.title}</span>
+                            </div>
+                          </button>
+                        )
+                      })
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* 3. BOTTOM DOCK: Status Halo or Inspection Callout (Zero Overlap) */}
+                <div className="core-bottom-dock">
+                  {result && activeSignalIndex !== null && result.evidence?.[activeSignalIndex] ? (
+                    <div className="node-inspection-callout">
+                      <div className="callout-header">
+                        <span className={`callout-sev sev-${result.evidence[activeSignalIndex].severity.toLowerCase()}`}>
+                          {result.evidence[activeSignalIndex].severity} SEVERITY SIGNAL
+                        </span>
+                        <h4>{result.evidence[activeSignalIndex].title}</h4>
+                        <button
+                          type="button"
+                          className="close-callout"
+                          onClick={() => setActiveSignalIndex(null)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <p className="callout-desc">{result.evidence[activeSignalIndex].description}</p>
+                      <div className="callout-meta">
+                        <span className="meta-col">
+                          <strong>Observed:</strong> {String(result.evidence[activeSignalIndex].observed_value)}
+                        </span>
+                        {result.evidence[activeSignalIndex].reference_threshold && (
+                          <span className="meta-col">
+                            <strong>Threshold:</strong> {result.evidence[activeSignalIndex].reference_threshold}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ) : result && (!result.evidence || result.evidence.length === 0) ? (
+                    <div className="calm-core-halo">
+                      <span className="halo-icon">✨</span>
+                      <span className="halo-text">Zero Elevated Risk Signals · Clean Baseline</span>
+                    </div>
+                  ) : (
+                    <div className="standby-core-hint">
+                      <span>Ready for Risk Assessment. Select a scenario or run evaluation.</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </main>
+
+            {/* RIGHT WING: Deep Investigation & Narrative Dossier */}
+            <aside className="theatre-wing right-wing">
+              {/* Analyst Briefing Dossier */}
+              <div className="cyber-panel">
+                <div className="panel-hud-header">
+                  <span className="hud-corner-tag">DOSSIER</span>
+                  <h3>Risk Investigation</h3>
+                </div>
+
+                {!result && !loading && (
+                  <div className="empty-dossier-state">
+                    <div className="dossier-glyph">🛡️</div>
+                    <h4>Investigation Standby</h4>
+                    <p>
+                      Execute a transaction assessment in the console to inspect probability,
+                      decision policy metrics, and severity-ranked signals.
+                    </p>
+                    <div className="workflow-crumbs">
+                      <span>Payload</span> → <span>ColumnTransformer</span> → <span>Random Forest</span> → <span>Score</span> → <span>Guarded Action</span>
+                    </div>
                   </div>
                 )}
 
-                {/* Structured Evidence Signals */}
-                <div className="evidence-section">
-                  <div className="evidence-header">
-                    <h3>Structured Risk Evidence Signals</h3>
-                    <span className="evidence-count-badge">
-                      {result.evidence?.length || 0} Signals Detected
-                    </span>
+                {loading && (
+                  <div className="dossier-loading-skeleton">
+                    <div className="skeleton-pulse-circle"></div>
+                    <div className="skeleton-pulse-bar lg"></div>
+                    <div className="skeleton-pulse-bar md"></div>
+                    <div className="skeleton-pulse-bar sm"></div>
                   </div>
+                )}
 
-                  {(!result.evidence || result.evidence.length === 0) ? (
-                    <div className="empty-evidence-box">
-                      <span>✨ No elevated risk signals detected. Transaction attributes conform to expected baselines.</span>
+                {result && !loading && (
+                  <div className="investigation-dossier">
+                    {/* Prob & Decision HUD */}
+                    <div className="dossier-stat-grid">
+                      <div className="dossier-metric">
+                        <span className="dm-label">Random Forest Prob</span>
+                        <span className="dm-val font-mono">
+                          {(result.fraud_probability * 100).toFixed(2)}%
+                        </span>
+                        <span className="dm-sub">({result.fraud_probability})</span>
+                      </div>
+                      <div className="dossier-metric">
+                        <span className="dm-label">Deterministic Score</span>
+                        <span className="dm-val score-highlight">
+                          {result.risk_score} / 100
+                        </span>
+                        <span className="dm-sub">{result.risk_level} Risk Level</span>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="evidence-list">
-                      {result.evidence.map((item, idx) => (
-                        <div key={idx} className={`evidence-card severity-${item.severity.toLowerCase()}`}>
-                          <div className="evidence-card-header">
-                            <div className="evidence-title-group">
-                              <span className={`severity-tag ${item.severity.toLowerCase()}`}>
-                                {item.severity}
-                              </span>
-                              <span className="evidence-title">{item.title}</span>
-                            </div>
-                            <span className="evidence-code">{item.code}</span>
-                          </div>
 
-                          <p className="evidence-desc">{item.description}</p>
-
-                          <div className="evidence-meta-row">
-                            <span className="meta-item">
-                              <strong>Observed:</strong> {String(item.observed_value)}
-                            </span>
-                            {item.reference_threshold && (
-                              <span className="meta-item">
-                                <strong>Threshold:</strong> {item.reference_threshold}
-                              </span>
-                            )}
-                          </div>
+                    {/* Analyst Narrative Summary */}
+                    {result.analyst_summary && (
+                      <div className="analyst-narrative-box">
+                        <div className="narrative-head">
+                          <span className="narrative-icon">📋</span>
+                          <strong>Analyst Narrative Briefing</strong>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                        <p className="narrative-body">{result.analyst_summary}</p>
+                      </div>
+                    )}
 
-                {/* Raw JSON Debug Viewer */}
-                <div className="json-debug-section">
+                    {/* Evidence Signals Matrix */}
+                    <div className="evidence-matrix-zone">
+                      <div className="matrix-title-bar">
+                        <h4>Structured Evidence Signals</h4>
+                        <span className="signal-count-badge">
+                          {result.evidence?.length || 0} Detected
+                        </span>
+                      </div>
+
+                      {(!result.evidence || result.evidence.length === 0) ? (
+                        <div className="clean-evidence-pill">
+                          <span>✨ No elevated risk signals detected. Transaction attributes conform to established baseline.</span>
+                        </div>
+                      ) : (
+                        <div className="signals-accordion-list">
+                          {result.evidence.map((item, idx) => (
+                            <div
+                              key={idx}
+                              className={`signal-dossier-card sev-${item.severity.toLowerCase()} ${activeSignalIndex === idx ? 'focused' : ''}`}
+                              onClick={() => setActiveSignalIndex(activeSignalIndex === idx ? null : idx)}
+                            >
+                              <div className="signal-card-header">
+                                <div className="signal-title-row">
+                                  <span className={`sev-tag ${item.severity.toLowerCase()}`}>
+                                    {item.severity}
+                                  </span>
+                                  <span className="sig-name">{item.title}</span>
+                                </div>
+                                <span className="sig-code">{item.code}</span>
+                              </div>
+                              <p className="sig-desc">{item.description}</p>
+                              <div className="sig-metric-chips">
+                                <span className="chip-item">
+                                  <strong>Observed:</strong> {String(item.observed_value)}
+                                </span>
+                                {item.reference_threshold && (
+                                  <span className="chip-item">
+                                    <strong>Threshold:</strong> {item.reference_threshold}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Raw JSON Toggle */}
+                    <div className="raw-json-drawer">
+                      <button
+                        type="button"
+                        className="json-drawer-btn"
+                        onClick={() => setShowJson(!showJson)}
+                      >
+                        {showJson ? '▼ Hide Raw Assessment Payload' : '▶ Inspect Raw Assessment JSON'}
+                      </button>
+                      {showJson && (
+                        <pre className="json-output-block">
+                          {JSON.stringify(result, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </aside>
+          </div>
+        )}
+
+        {/* =========================================================================
+            TAB 2: LIVE TRANSACTION STREAM & AUDIT LEDGER
+           ========================================================================= */}
+        {activeTab === 'stream' && (
+          <section className="cyber-panel stream-theatre-panel">
+            <div className="panel-hud-header stream-header-wrap">
+              <div>
+                <span className="hud-corner-tag">LEDGER</span>
+                <h2>Transaction Stream & Immutable Audit Ledger</h2>
+                <p className="panel-subtext">
+                  Continuous historical record of scored payments and policy decisions stored in SQLite WAL ledger.
+                </p>
+              </div>
+              <div className="stream-filter-bar">
+                {['ALL', 'ALLOW', 'REVIEW', 'BLOCK'].map((filterKey) => (
                   <button
+                    key={filterKey}
                     type="button"
-                    className="json-toggle-btn"
-                    onClick={() => setShowJson(!showJson)}
+                    className={`stream-filter-btn ${historyFilter === filterKey ? 'active' : ''}`}
+                    onClick={() => setHistoryFilter(filterKey)}
                   >
-                    {showJson ? '▼ Hide API Response JSON' : '▶ View Raw Assessment JSON'}
+                    {filterKey}
                   </button>
-                  {showJson && (
-                    <pre className="json-code-block">
-                      {JSON.stringify(result, null, 2)}
-                    </pre>
-                  )}
-                </div>
+                ))}
+                <button
+                  type="button"
+                  className="stream-refresh-btn"
+                  onClick={() => fetchHistory(historyFilter)}
+                  title="Reload ledger from SQLite"
+                >
+                  🔄 Refresh Stream
+                </button>
+              </div>
+            </div>
+
+            {historyLoading ? (
+              <div className="stream-loading-box">
+                <div className="radar-spinner lg"></div>
+                <span>Synchronizing Transaction Ledger...</span>
+              </div>
+            ) : historyItems.length === 0 ? (
+              <div className="empty-stream-card">
+                <div className="empty-glyph">📂</div>
+                <h3>No Transactions in Ledger</h3>
+                <p>Execute an assessment in the Risk Core or transmit a webhook to populate the stream.</p>
+              </div>
+            ) : (
+              <div className="stream-table-responsive">
+                <table className="stream-data-table">
+                  <thead>
+                    <tr>
+                      <th>Transaction ID</th>
+                      <th>Customer</th>
+                      <th>Amount</th>
+                      <th>Rail</th>
+                      <th>Risk Score</th>
+                      <th>Policy Decision</th>
+                      <th>Channel</th>
+                      <th>Timestamp</th>
+                      <th>Investigation</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyItems.map((tx) => (
+                      <tr key={tx.transaction_id} className={`row-decision-${tx.decision.toLowerCase()}`}>
+                        <td className="font-mono text-cyan">{tx.transaction_id}</td>
+                        <td>{tx.customer_id || '—'}</td>
+                        <td className="font-bold">
+                          ₹{tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td>
+                          <span className="rail-pill">{tx.payment_method.toUpperCase()}</span>
+                        </td>
+                        <td>
+                          <span className={`score-badge score-sev-${tx.risk_score >= 70 ? 'high' : tx.risk_score >= 40 ? 'med' : 'low'}`}>
+                            {tx.risk_score}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`decision-pill sm pill-${tx.decision.toLowerCase()}`}>
+                            {tx.decision}
+                          </span>
+                        </td>
+                        <td>
+                          <span className="channel-tag">{tx.source}</span>
+                        </td>
+                        <td className="time-muted">
+                          {new Date(tx.created_at).toLocaleTimeString()}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="inspect-core-btn"
+                            onClick={() => inspectHistoryItem(tx)}
+                          >
+                            <span>Load in Core →</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </section>
-        </main>
-      )}
+        )}
 
-      {/* TAB 2: Historical Audit Ledger View */}
-      {activeTab === 'ledger' && (
-        <section className="ledger-panel">
-          <div className="ledger-header">
-            <div>
-              <h2>Transaction Audit Ledger</h2>
-              <p className="panel-sub">Immutable transaction history and risk decisions stored in SQLite repository.</p>
-            </div>
-            <div className="ledger-filter-group">
-              {['ALL', 'ALLOW', 'REVIEW', 'BLOCK'].map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  className={`filter-btn ${historyFilter === f ? 'active' : ''}`}
-                  onClick={() => setHistoryFilter(f)}
-                >
-                  {f}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="refresh-btn"
-                onClick={() => fetchHistory(historyFilter)}
-                title="Refresh Ledger"
-              >
-                🔄 Refresh
-              </button>
-            </div>
-          </div>
-
-          {historyLoading ? (
-            <div className="skeleton-card">
-              <div className="skeleton-bar lg"></div>
-              <div className="skeleton-bar md"></div>
-            </div>
-          ) : historyItems.length === 0 ? (
-            <div className="placeholder-card">
-              <div className="placeholder-icon">📂</div>
-              <h3>No Transactions Recorded in Ledger</h3>
-              <p>Execute an assessment in the console or send a webhook to populate transaction history.</p>
-            </div>
-          ) : (
-            <div className="table-responsive">
-              <table className="ledger-table">
-                <thead>
-                  <tr>
-                    <th>Txn ID</th>
-                    <th>Customer</th>
-                    <th>Amount</th>
-                    <th>Method</th>
-                    <th>Score</th>
-                    <th>Decision</th>
-                    <th>Source</th>
-                    <th>Timestamp</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {historyItems.map((tx) => (
-                    <tr key={tx.transaction_id}>
-                      <td className="mono">{tx.transaction_id}</td>
-                      <td>{tx.customer_id || '—'}</td>
-                      <td className="amount-col">₹{tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                      <td><span className="badge-rail">{tx.payment_method.toUpperCase()}</span></td>
-                      <td>
-                        <span className="score-pill">{tx.risk_score}</span>
-                      </td>
-                      <td>
-                        <span className={`decision-badge sm ${tx.decision.toLowerCase()}`}>
-                          {tx.decision}
-                        </span>
-                      </td>
-                      <td><span className="source-tag">{tx.source}</span></td>
-                      <td className="time-col">{new Date(tx.created_at).toLocaleTimeString()}</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="inspect-btn"
-                          onClick={() => inspectHistoryItem(tx)}
-                        >
-                          Inspect →
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* TAB 3: Razorpay Webhook Simulator View */}
-      {activeTab === 'webhook' && (
-        <section className="webhook-panel">
-          <div className="panel-header">
-            <div>
-              <h2>Razorpay Webhook Ingestion Simulator</h2>
-              <p className="panel-sub">
-                Simulate standard Razorpay payment webhook events with automated HMAC-SHA256 signature generation and idempotency testing.
-              </p>
-            </div>
-          </div>
-
-          <div className="webhook-grid">
-            <form onSubmit={handleWebhookSubmit} className="webhook-form">
-              <div className="input-group">
-                <label htmlFor="wb_pid">Razorpay Payment ID</label>
-                <input
-                  id="wb_pid"
-                  type="text"
-                  required
-                  value={webhookPaymentId}
-                  onChange={(e) => setWebhookPaymentId(e.target.value)}
-                />
+        {/* =========================================================================
+            TAB 3: RAZORPAY WEBHOOK LINK TERMINAL
+           ========================================================================= */}
+        {activeTab === 'webhook' && (
+          <section className="cyber-panel webhook-theatre-panel">
+            <div className="panel-hud-header">
+              <div>
+                <span className="hud-corner-tag">WEBHOOK TERMINAL</span>
+                <h2>Razorpay Webhook Link & Automated Ingestion</h2>
+                <p className="panel-subtext">
+                  Demonstrates live HMAC-SHA256 signature verification, atomic idempotency deduplication, and zero-touch ledger ingestion.
+                </p>
               </div>
+            </div>
 
-              <div className="input-group">
-                <label htmlFor="wb_amt">Payment Amount (INR)</label>
-                <div className="input-affix-wrapper">
-                  <span className="input-prefix">₹</span>
+            {/* Architecture Pipeline Diagram */}
+            <div className="webhook-pipeline-diagram">
+              <div className="pipe-step">
+                <span className="step-num">1</span>
+                <span className="step-txt">RAZORPAY EVENT</span>
+              </div>
+              <span className="pipe-arrow">➔</span>
+              <div className="pipe-step">
+                <span className="step-num">2</span>
+                <span className="step-txt">HMAC-SHA256 VERIFIED</span>
+              </div>
+              <span className="pipe-arrow">➔</span>
+              <div className="pipe-step">
+                <span className="step-num">3</span>
+                <span className="step-txt">IDEMPOTENCY CHECK</span>
+              </div>
+              <span className="pipe-arrow">➔</span>
+              <div className="pipe-step">
+                <span className="step-num">4</span>
+                <span className="step-txt">RISK CORE ML</span>
+              </div>
+              <span className="pipe-arrow">➔</span>
+              <div className="pipe-step">
+                <span className="step-num">5</span>
+                <span className="step-txt">IMMUTABLE LEDGER</span>
+              </div>
+            </div>
+
+            <div className="webhook-terminal-grid">
+              {/* Left Column: Form Simulator */}
+              <form onSubmit={handleWebhookSubmit} className="webhook-sim-form">
+                <div className="field-block single-col">
+                  <label htmlFor="wb_pid">Razorpay Payment ID (Idempotency Key)</label>
                   <input
-                    id="wb_amt"
-                    type="number"
-                    step="0.01"
-                    min="1"
+                    id="wb_pid"
+                    type="text"
                     required
-                    value={webhookAmount}
-                    onChange={(e) => setWebhookAmount(parseFloat(e.target.value) || 0)}
+                    value={webhookPaymentId}
+                    onChange={(e) => setWebhookPaymentId(e.target.value)}
                   />
                 </div>
-              </div>
 
-              <div className="input-group">
-                <label htmlFor="wb_method">Payment Method</label>
-                <select
-                  id="wb_method"
-                  value={webhookMethod}
-                  onChange={(e) => setWebhookMethod(e.target.value)}
+                <div className="field-block single-col">
+                  <label htmlFor="wb_amt">Payment Amount (INR)</label>
+                  <div className="input-wrap">
+                    <span className="curr-sym">₹</span>
+                    <input
+                      id="wb_amt"
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      required
+                      value={webhookAmount}
+                      onChange={(e) => setWebhookAmount(parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                </div>
+
+                <div className="field-block single-col">
+                  <label htmlFor="wb_method">Payment Method Rail</label>
+                  <select
+                    id="wb_method"
+                    value={webhookMethod}
+                    onChange={(e) => setWebhookMethod(e.target.value)}
+                  >
+                    <option value="card">Card (Credit/Debit)</option>
+                    <option value="upi">UPI</option>
+                    <option value="netbanking">Net Banking</option>
+                    <option value="wallet">Wallet</option>
+                  </select>
+                </div>
+
+                <div className="field-block single-col">
+                  <label htmlFor="wb_sec">Webhook Secret (X-Razorpay-Signature Key)</label>
+                  <input
+                    id="wb_sec"
+                    type="password"
+                    value={webhookSecret}
+                    onChange={(e) => setWebhookSecret(e.target.value)}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={webhookLoading || !readiness.ready}
+                  className="cyber-assess-btn webhook-btn"
                 >
-                  <option value="card">Card (Credit/Debit)</option>
-                  <option value="upi">UPI</option>
-                  <option value="netbanking">Net Banking</option>
-                  <option value="wallet">Wallet</option>
-                </select>
-              </div>
+                  {webhookLoading ? (
+                    <span className="btn-glow-pulse">
+                      <span className="radar-spinner"></span>
+                      <span>Transmitting & Verifying HMAC...</span>
+                    </span>
+                  ) : (
+                    <span>🚀 Transmit Signed Webhook to /api/v1/webhooks/razorpay</span>
+                  )}
+                </button>
+              </form>
 
-              <div className="input-group">
-                <label htmlFor="wb_sec">Webhook Secret Key</label>
-                <input
-                  id="wb_sec"
-                  type="password"
-                  value={webhookSecret}
-                  onChange={(e) => setWebhookSecret(e.target.value)}
-                />
-              </div>
+              {/* Right Column: Webhook Response Terminal */}
+              <div className="webhook-output-terminal">
+                <div className="terminal-hud-bar">
+                  <span className="term-dot red"></span>
+                  <span className="term-dot yellow"></span>
+                  <span className="term-dot green"></span>
+                  <span className="term-title">API RESPONSE TERMINAL</span>
+                </div>
 
-              <button
-                type="submit"
-                disabled={webhookLoading || !readiness.ready}
-                className="submit-btn"
-              >
-                {webhookLoading ? 'Transmitting Webhook...' : 'Send Signed Webhook to /api/v1/webhooks/razorpay'}
-              </button>
-            </form>
-
-            <div className="webhook-response-box">
-              <h3>Webhook Ingestion Result</h3>
-              {webhookError && (
-                <div className="error-card">
-                  <div className="error-icon">⚠️</div>
-                  <div className="error-content">
-                    <h4>Webhook Ingestion Failed</h4>
+                {webhookError && (
+                  <div className="term-error-box">
+                    <strong>401 / 500 INGESTION ERROR:</strong>
                     <p>{webhookError}</p>
                   </div>
-                </div>
-              )}
+                )}
 
-              {webhookResult && (
-                <div className="result-card">
-                  <div className={`decision-hero ${webhookResult.decision.toLowerCase()}`}>
-                    <div className="score-meter-box">
-                      <div className="score-number">{webhookResult.risk_score}</div>
-                      <div className="score-scale">/ 100</div>
-                      <div className="score-label">Risk Score</div>
-                    </div>
-                    <div className="decision-info-box">
-                      <div className="badges-row">
-                        <span className={`decision-badge ${webhookResult.decision.toLowerCase()}`}>
-                          {webhookResult.decision}
-                        </span>
-                        {webhookResult.idempotent_replay && (
-                          <span className="idemp-badge">IDEMPOTENT REPLAY</span>
-                        )}
+                {webhookResult && (
+                  <div className="term-result-card">
+                    <div className="term-hero-row">
+                      <div className="term-score-block">
+                        <span className="ts-num">{webhookResult.risk_score}</span>
+                        <span className="ts-lbl">/ 100</span>
                       </div>
-                      <p className="mono-sub">Payment ID: {webhookResult.payment_id}</p>
+                      <div className="term-meta-block">
+                        <div className="term-badges">
+                          <span className={`decision-pill pill-${webhookResult.decision.toLowerCase()}`}>
+                            {webhookResult.decision}
+                          </span>
+                          {webhookResult.idempotent_replay && (
+                            <span className="replay-pill">IDEMPOTENT REPLAY</span>
+                          )}
+                        </div>
+                        <span className="term-pid font-mono">Payment ID: {webhookResult.payment_id}</span>
+                      </div>
                     </div>
-                  </div>
-                  {webhookResult.analyst_summary && (
-                    <div className="analyst-summary-card">
-                      <p className="summary-text">{webhookResult.analyst_summary}</p>
-                    </div>
-                  )}
-                  <pre className="json-code-block">
-                    {JSON.stringify(webhookResult, null, 2)}
-                  </pre>
-                </div>
-              )}
 
-              {!webhookResult && !webhookError && (
-                <div className="placeholder-card">
-                  <div className="placeholder-icon">⚡</div>
-                  <h3>Ready for Webhook Simulation</h3>
-                  <p>Click send to test signature generation, event deduplication, and automated scoring.</p>
-                </div>
-              )}
+                    {webhookResult.analyst_summary && (
+                      <p className="term-summary-text">{webhookResult.analyst_summary}</p>
+                    )}
+
+                    <pre className="term-json-code">
+                      {JSON.stringify(webhookResult, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                {!webhookResult && !webhookError && (
+                  <div className="term-standby-box">
+                    <span className="standby-glyph">⚡</span>
+                    <h4>Ready for Webhook Simulation</h4>
+                    <p>
+                      Click transmit to test raw payload hashing, timing-safe HMAC validation,
+                      and automatic database logging.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        </section>
-      )}
+          </section>
+        )}
+      </div>
     </div>
   )
 }
