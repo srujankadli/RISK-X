@@ -7,8 +7,9 @@ const PRESETS = {
     id: 'normal',
     name: 'Normal Transaction',
     icon: '🟢',
-    badge: 'BENIGN BASELINE',
-    description: 'Benign baseline payment from established customer with clean history.',
+    badge: 'BENIGN BASELINE → ALLOW',
+    description: 'Clean transaction from established customer matching spending baseline. Zero risk flags.',
+    expected: 'ALLOW · Risk Score: 1 · Low Risk',
     data: {
       amount: 450.0,
       customer_avg_amount: 500.0,
@@ -32,7 +33,8 @@ const PRESETS = {
     name: 'Suspicious Velocity',
     icon: '🟡',
     badge: 'STEP-UP REVIEW',
-    description: 'Moderate amount spike, 1 failed retry & unrecognized device in off-hours.',
+    description: 'Moderate amount spike, 1 failed retry & unrecognized device in off-hours. Requires scrutiny.',
+    expected: 'REVIEW · Risk Score: 67 · Medium Risk',
     data: {
       amount: 2800.0,
       customer_avg_amount: 1000.0,
@@ -56,7 +58,8 @@ const PRESETS = {
     name: 'High-Risk Attack Cluster',
     icon: '🔴',
     badge: 'AUTOMATED BLOCK',
-    description: 'Severe amount spike (55x), 3 failed retries, rapid velocity & multi-account device association.',
+    description: 'Severe 55x amount spike, 3 failed retries, rapid velocity & multi-account device association.',
+    expected: 'BLOCK · Risk Score: 93 · High Risk',
     data: {
       amount: 55000.0,
       customer_avg_amount: 1000.0,
@@ -90,6 +93,7 @@ export default function App() {
   const [showJson, setShowJson] = useState(false)
   const [selectedPreset, setSelectedPreset] = useState('normal')
   const [activeSignalIndex, setActiveSignalIndex] = useState(null)
+  const [initialAssessed, setInitialAssessed] = useState(false)
 
   // History ledger state
   const [historyItems, setHistoryItems] = useState([])
@@ -162,93 +166,28 @@ export default function App() {
     }
   }, [])
 
-  useEffect(() => {
-    checkReadiness()
-    fetchStats()
-    fetchHistory('ALL')
-    const timer = setInterval(() => {
-      checkReadiness()
-      fetchStats()
-    }, 8000)
-    return () => clearInterval(timer)
-  }, [checkReadiness, fetchStats, fetchHistory])
-
-  useEffect(() => {
-    if (activeTab === 'stream') {
-      fetchHistory(historyFilter)
-    }
-  }, [activeTab, historyFilter, fetchHistory])
-
-  const handleInputChange = (field, value) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }))
-    if (validationErrors[field]) {
-      setValidationErrors((prev) => {
-        const next = { ...prev }
-        delete next[field]
-        return next
-      })
-    }
-  }
-
-  const loadPreset = (presetKey) => {
-    setSelectedPreset(presetKey)
-    setFormData({ ...PRESETS[presetKey].data })
-    setError(null)
-    setValidationErrors({})
-    setActiveSignalIndex(null)
-  }
-
-  const validateForm = () => {
-    const errs = {}
-    if (!formData.amount || Number(formData.amount) <= 0) {
-      errs.amount = 'Amount must be greater than 0'
-    }
-    if (Number(formData.account_age_days) < 0) {
-      errs.account_age_days = 'Account age cannot be negative'
-    }
-    if (Number(formData.failed_attempts) < 0) {
-      errs.failed_attempts = 'Failed attempts cannot be negative'
-    }
-    if (Number(formData.transactions_last_10min) < 0) {
-      errs.transactions_last_10min = 'Counter cannot be negative'
-    }
-    if (Number(formData.transactions_last_1hr) < 0) {
-      errs.transactions_last_1hr = 'Counter cannot be negative'
-    }
-    if (Number(formData.device_account_count) < 1) {
-      errs.device_account_count = 'Must be at least 1 account'
-    }
-    setValidationErrors(errs)
-    return Object.keys(errs).length === 0
-  }
-
-  const handleAssess = async (e) => {
-    if (e) e.preventDefault()
-    if (!validateForm()) return
-
+  // Assess transaction helper
+  const assessWithPayload = useCallback(async (dataToAssess) => {
     setLoading(true)
     setError(null)
     setActiveSignalIndex(null)
 
     const payload = {
-      amount: parseFloat(formData.amount),
-      customer_avg_amount: parseFloat(formData.customer_avg_amount || 0.0),
-      payment_method: formData.payment_method,
-      account_age_days: parseInt(formData.account_age_days || 0, 10),
-      previous_transaction_count: parseInt(formData.previous_transaction_count || 0, 10),
-      failed_attempts: parseInt(formData.failed_attempts || 0, 10),
-      refund_count: parseInt(formData.refund_count || 0, 10),
-      transactions_last_10min: parseInt(formData.transactions_last_10min || 0, 10),
-      transactions_last_1hr: parseInt(formData.transactions_last_1hr || 0, 10),
-      device_account_count: parseInt(formData.device_account_count || 1, 10),
-      is_new_device: parseInt(formData.is_new_device || 0, 10),
-      is_unusual_time: parseInt(formData.is_unusual_time || 0, 10),
-      is_unusual_location: parseInt(formData.is_unusual_location || 0, 10),
-      transaction_id: formData.transaction_id || undefined,
-      customer_id: formData.customer_id || undefined,
+      amount: parseFloat(dataToAssess.amount),
+      customer_avg_amount: parseFloat(dataToAssess.customer_avg_amount || 0.0),
+      payment_method: dataToAssess.payment_method,
+      account_age_days: parseInt(dataToAssess.account_age_days || 0, 10),
+      previous_transaction_count: parseInt(dataToAssess.previous_transaction_count || 0, 10),
+      failed_attempts: parseInt(dataToAssess.failed_attempts || 0, 10),
+      refund_count: parseInt(dataToAssess.refund_count || 0, 10),
+      transactions_last_10min: parseInt(dataToAssess.transactions_last_10min || 0, 10),
+      transactions_last_1hr: parseInt(dataToAssess.transactions_last_1hr || 0, 10),
+      device_account_count: parseInt(dataToAssess.device_account_count || 1, 10),
+      is_new_device: parseInt(dataToAssess.is_new_device || 0, 10),
+      is_unusual_time: parseInt(dataToAssess.is_unusual_time || 0, 10),
+      is_unusual_location: parseInt(dataToAssess.is_unusual_location || 0, 10),
+      transaction_id: dataToAssess.transaction_id || undefined,
+      customer_id: dataToAssess.customer_id || undefined,
     }
 
     try {
@@ -283,6 +222,87 @@ export default function App() {
     } finally {
       setLoading(false)
     }
+  }, [fetchStats, fetchHistory, historyFilter])
+
+  useEffect(() => {
+    checkReadiness()
+    fetchStats()
+    fetchHistory('ALL')
+    const timer = setInterval(() => {
+      checkReadiness()
+      fetchStats()
+    }, 8000)
+    return () => clearInterval(timer)
+  }, [checkReadiness, fetchStats, fetchHistory])
+
+  // Automatically assess initial normal preset once backend is ready
+  useEffect(() => {
+    if (readiness.ready && !initialAssessed && !result) {
+      assessWithPayload(DEFAULT_FORM)
+      setInitialAssessed(true)
+    }
+  }, [readiness.ready, initialAssessed, result, assessWithPayload])
+
+  useEffect(() => {
+    if (activeTab === 'stream') {
+      fetchHistory(historyFilter)
+    }
+  }, [activeTab, historyFilter, fetchHistory])
+
+  const handleInputChange = (field, value) => {
+    setFormData((prev) => ({
+      ...prev,
+      [field]: value,
+    }))
+    if (validationErrors[field]) {
+      setValidationErrors((prev) => {
+        const next = { ...prev }
+        delete next[field]
+        return next
+      })
+    }
+  }
+
+  const loadPreset = (presetKey) => {
+    setSelectedPreset(presetKey)
+    const presetData = { ...PRESETS[presetKey].data }
+    setFormData(presetData)
+    setError(null)
+    setValidationErrors({})
+    setActiveSignalIndex(null)
+    if (readiness.ready) {
+      assessWithPayload(presetData)
+    }
+  }
+
+  const validateForm = () => {
+    const errs = {}
+    if (!formData.amount || Number(formData.amount) <= 0) {
+      errs.amount = 'Amount must be greater than 0'
+    }
+    if (Number(formData.account_age_days) < 0) {
+      errs.account_age_days = 'Account age cannot be negative'
+    }
+    if (Number(formData.failed_attempts) < 0) {
+      errs.failed_attempts = 'Failed attempts cannot be negative'
+    }
+    if (Number(formData.transactions_last_10min) < 0) {
+      errs.transactions_last_10min = 'Counter cannot be negative'
+    }
+    if (Number(formData.transactions_last_1hr) < 0) {
+      errs.transactions_last_1hr = 'Counter cannot be negative'
+    }
+    if (Number(formData.device_account_count) < 1) {
+      errs.device_account_count = 'Must be at least 1 account'
+    }
+    setValidationErrors(errs)
+    return Object.keys(errs).length === 0
+  }
+
+  const handleAssess = async (e) => {
+    if (e) e.preventDefault()
+    if (!validateForm()) return
+    assessWithPayload(formData)
   }
 
   // Keyboard shortcut: Ctrl/Cmd + Enter
@@ -313,7 +333,6 @@ export default function App() {
       source: item.source,
       created_at: item.created_at,
     })
-    // Also populate form with available raw parameters
     if (item.raw_request) {
       setFormData((prev) => ({
         ...prev,
@@ -328,11 +347,16 @@ export default function App() {
   }
 
   // Webhook Simulator submit
-  const handleWebhookSubmit = async (e) => {
-    if (e) e.preventDefault()
+  const handleWebhookSubmit = async (customConfig = {}) => {
     setWebhookLoading(true)
     setWebhookError(null)
     setWebhookResult(null)
+
+    const paymentId = customConfig.paymentId || webhookPaymentId
+    const amount = customConfig.amount || webhookAmount
+    const method = customConfig.method || webhookMethod
+    const secret = customConfig.secret !== undefined ? customConfig.secret : webhookSecret
+    const forceInvalidSig = customConfig.forceInvalidSig || false
 
     const payload = {
       entity: 'event',
@@ -342,14 +366,14 @@ export default function App() {
       payload: {
         payment: {
           entity: {
-            id: webhookPaymentId,
-            amount: Math.round(webhookAmount * 100), // paise
+            id: paymentId,
+            amount: Math.round(amount * 100), // paise
             currency: 'INR',
             status: 'authorized',
-            method: webhookMethod,
+            method: method,
             notes: {
               customer_id: 'cust_hook_7821',
-              customer_avg_amount: String(Math.round(webhookAmount * 0.4)),
+              customer_avg_amount: String(Math.round(amount * 0.4)),
               account_age_days: '60',
               previous_transaction_count: '5',
               failed_attempts: '1',
@@ -364,20 +388,25 @@ export default function App() {
     const bodyText = JSON.stringify(payload)
 
     try {
-      const encoder = new TextEncoder()
-      const keyData = encoder.encode(webhookSecret)
-      const msgData = encoder.encode(bodyText)
+      let hexSignature = ''
+      if (forceInvalidSig) {
+        hexSignature = 'invalid_hmac_tampered_signature_782190abcdef'
+      } else {
+        const encoder = new TextEncoder()
+        const keyData = encoder.encode(secret)
+        const msgData = encoder.encode(bodyText)
 
-      const cryptoKey = await window.crypto.subtle.importKey(
-        'raw',
-        keyData,
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['sign']
-      )
-      const signatureBuffer = await window.crypto.subtle.sign('HMAC', cryptoKey, msgData)
-      const hashArray = Array.from(new Uint8Array(signatureBuffer))
-      const hexSignature = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+        const cryptoKey = await window.crypto.subtle.importKey(
+          'raw',
+          keyData,
+          { name: 'HMAC', hash: 'SHA-256' },
+          false,
+          ['sign']
+        )
+        const signatureBuffer = await window.crypto.subtle.sign('HMAC', cryptoKey, msgData)
+        const hashArray = Array.from(new Uint8Array(signatureBuffer))
+        hexSignature = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+      }
 
       const res = await fetch(`${API_BASE}/api/v1/webhooks/razorpay`, {
         method: 'POST',
@@ -390,7 +419,7 @@ export default function App() {
 
       const data = await res.json()
       if (!res.ok) {
-        throw new Error(data.detail || `Webhook Error (HTTP ${res.status})`)
+        throw new Error(data.detail || `Webhook Rejected (HTTP ${res.status}): Invalid Signature`)
       }
 
       setWebhookResult(data)
@@ -443,7 +472,7 @@ export default function App() {
                   <span className="brand-title">RISK-X</span>
                   <span className="brand-subtag">INTELLIGENCE CORE</span>
                 </div>
-                <span className="brand-dept">Payment Risk Investigation & Response</span>
+                <span className="brand-dept">Payment Risk Investigation & Automated Response</span>
               </div>
             </div>
           </div>
@@ -547,6 +576,47 @@ export default function App() {
         )}
 
         {/* =========================================================================
+            2.5. 5-STAGE RISK INVESTIGATION PIPELINE (Judge Explainability Ribbon)
+           ========================================================================= */}
+        <section className="pipeline-narrative-bar" aria-label="End-to-End Decision Pipeline">
+          <div className="pipe-stage-node done">
+            <span className="pipe-badge">1. INGEST</span>
+            <span className="pipe-title">13 Observables</span>
+            <span className="pipe-sub">Amount, Velocity, Device</span>
+          </div>
+          <span className="pipe-chevron">➔</span>
+          <div className={`pipe-stage-node ${result ? 'done' : ''}`}>
+            <span className="pipe-badge">2. ML INFERENCE</span>
+            <span className="pipe-title">Random Forest</span>
+            <span className="pipe-sub">
+              {result ? `${(result.fraud_probability * 100).toFixed(1)}% Fraud Prob` : 'Standby'}
+            </span>
+          </div>
+          <span className="pipe-chevron">➔</span>
+          <div className={`pipe-stage-node ${result ? 'done' : ''}`}>
+            <span className="pipe-badge">3. SCORING</span>
+            <span className="pipe-title">Deterministic Score</span>
+            <span className="pipe-sub">
+              {result ? `${result.risk_score} / 100` : '0 - 100 Scale'}
+            </span>
+          </div>
+          <span className="pipe-chevron">➔</span>
+          <div className={`pipe-stage-node ${result ? `active-${activeDecision}` : ''}`}>
+            <span className="pipe-badge">4. DECISION</span>
+            <span className="pipe-title">{result ? result.decision : 'Policy Guardrail'}</span>
+            <span className="pipe-sub">
+              {result ? `${result.risk_level} Risk` : 'ALLOW / REVIEW / BLOCK'}
+            </span>
+          </div>
+          <span className="pipe-chevron">➔</span>
+          <div className={`pipe-stage-node ${result ? 'done' : ''}`}>
+            <span className="pipe-badge">5. AUDIT TRAIL</span>
+            <span className="pipe-title">SQLite WAL</span>
+            <span className="pipe-sub">Immutable Storage</span>
+          </div>
+        </section>
+
+        {/* =========================================================================
             TAB 1: RISK CORE & SPATIAL INVESTIGATION STAGE
            ========================================================================= */}
         {activeTab === 'core' && (
@@ -556,8 +626,9 @@ export default function App() {
               {/* Scenario Control Deck */}
               <div className="cyber-panel">
                 <div className="panel-hud-header">
-                  <span className="hud-corner-tag">SCENARIOS</span>
-                  <h3>Audit Scenarios</h3>
+                  <span className="hud-corner-tag">JUDGE SCENARIOS</span>
+                  <h3>Audit Presets (One-Click)</h3>
+                  <p className="panel-subtext">Select a scenario to evaluate immediately in the Risk Core.</p>
                 </div>
                 <div className="scenarios-deck">
                   {Object.entries(PRESETS).map(([key, p]) => (
@@ -573,6 +644,7 @@ export default function App() {
                       </div>
                       <span className="scenario-badge">{p.badge}</span>
                       <p className="scenario-desc">{p.description}</p>
+                      <span className="scenario-expected">{p.expected}</span>
                     </button>
                   ))}
                 </div>
@@ -819,9 +891,9 @@ export default function App() {
                       </span>
                     </div>
                     <div className="id-chip">
-                      <span className="id-label">LEVEL:</span>
+                      <span className="id-label">POLICY:</span>
                       <span className={`id-val risk-${(result?.risk_level || 'standby').toLowerCase()}`}>
-                        {result?.risk_level ? `${result.risk_level} RISK` : 'READY'}
+                        {result?.decision ? `${result.decision} (${result.risk_level} RISK)` : 'READY'}
                       </span>
                     </div>
                   </div>
@@ -874,7 +946,7 @@ export default function App() {
                         // Distribute nodes evenly around the orbital sphere
                         const angle = (idx / total) * 360 - 90
                         const rad = (angle * Math.PI) / 180
-                        // Bounded orbital radii: fits completely inside arena on all viewports
+                        // Bounded orbital radii
                         const rx = total <= 4 ? 155 : 170
                         const ry = total <= 4 ? 115 : 125
                         const x = Math.round(Math.cos(rad) * rx)
@@ -952,8 +1024,9 @@ export default function App() {
               {/* Analyst Briefing Dossier */}
               <div className="cyber-panel">
                 <div className="panel-hud-header">
-                  <span className="hud-corner-tag">DOSSIER</span>
-                  <h3>Risk Investigation</h3>
+                  <span className="hud-corner-tag">INVESTIGATION DOSSIER</span>
+                  <h3>Risk Explainability</h3>
+                  <p className="panel-subtext">Deconstructs ML probability, policy guardrails, and signals.</p>
                 </div>
 
                 {!result && !loading && (
@@ -997,6 +1070,38 @@ export default function App() {
                         </span>
                         <span className="dm-sub">{result.risk_level} Risk Level</span>
                       </div>
+                    </div>
+
+                    {/* Policy Guardrail Card */}
+                    <div className={`policy-guardrail-card policy-${activeDecision}`}>
+                      <div className="policy-head">
+                        <span className="policy-shield-glyph">
+                          {result.decision === 'ALLOW' ? '🛡️' : result.decision === 'REVIEW' ? '⚖️' : '🚫'}
+                        </span>
+                        <div>
+                          <span className="policy-rule-tag">
+                            {result.decision === 'ALLOW'
+                              ? 'DIRECT SETTLEMENT (SCORE 0–39)'
+                              : result.decision === 'REVIEW'
+                              ? 'STEP-UP REVIEW (SCORE 40–69)'
+                              : 'CRITICAL GUARDRAIL BLOCK (SCORE 70–100)'}
+                          </span>
+                          <h4 className="policy-decision-title">
+                            {result.decision === 'ALLOW'
+                              ? 'Low-Risk Baseline · Auto-Approved'
+                              : result.decision === 'REVIEW'
+                              ? 'Moderate Risk · Step-Up Verification Required'
+                              : 'Critical Threat · Automated Decline'}
+                          </h4>
+                        </div>
+                      </div>
+                      <p className="policy-narrative">
+                        {result.decision === 'ALLOW'
+                          ? 'Payment parameters conform to established baseline. Score (1/100) is below the 40 step-up threshold. Direct capture approved.'
+                          : result.decision === 'REVIEW'
+                          ? 'This transaction is not automatically blocked, but it requires additional scrutiny before settlement. 3 risk signals detected.'
+                          : 'High threat cluster detected. Score (93/100) breaches the 70 critical threshold. Automated decline enforced to prevent fraud loss.'}
+                      </p>
                     </div>
 
                     {/* Analyst Narrative Summary */}
@@ -1086,21 +1191,38 @@ export default function App() {
           <section className="cyber-panel stream-theatre-panel">
             <div className="panel-hud-header stream-header-wrap">
               <div>
-                <span className="hud-corner-tag">LEDGER</span>
-                <h2>Transaction Stream & Immutable Audit Ledger</h2>
+                <span className="hud-corner-tag">IMMUTABLE AUDIT TRAIL</span>
+                <h2>Transaction Stream & Investigation Ledger</h2>
                 <p className="panel-subtext">
-                  Continuous historical record of scored payments and policy decisions stored in SQLite WAL ledger.
+                  Every assessed transaction is immutably logged in SQLite WAL mode for compliance, dispute resolution, and audit investigation.
                 </p>
               </div>
               <div className="stream-filter-bar">
+                <span className="filter-bar-label">FILTER:</span>
                 {['ALL', 'ALLOW', 'REVIEW', 'BLOCK'].map((filterKey) => (
                   <button
                     key={filterKey}
                     type="button"
-                    className={`stream-filter-btn ${historyFilter === filterKey ? 'active' : ''}`}
-                    onClick={() => setHistoryFilter(filterKey)}
+                    className={`stream-filter-btn filter-btn-${filterKey.toLowerCase()} ${historyFilter === filterKey ? 'active' : ''}`}
+                    onClick={() => {
+                      setHistoryFilter(filterKey)
+                      fetchHistory(filterKey)
+                    }}
                   >
-                    {filterKey}
+                    <span className="filter-dot"></span>
+                    <span>{filterKey}</span>
+                    {filterKey === 'ALL' && stats && (
+                      <span className="filter-count-chip">{stats.total_transactions}</span>
+                    )}
+                    {filterKey === 'ALLOW' && stats && (
+                      <span className="filter-count-chip">{stats.allow_count}</span>
+                    )}
+                    {filterKey === 'REVIEW' && stats && (
+                      <span className="filter-count-chip">{stats.review_count}</span>
+                    )}
+                    {filterKey === 'BLOCK' && stats && (
+                      <span className="filter-count-chip">{stats.block_count}</span>
+                    )}
                   </button>
                 ))}
                 <button
@@ -1109,7 +1231,7 @@ export default function App() {
                   onClick={() => fetchHistory(historyFilter)}
                   title="Reload ledger from SQLite"
                 >
-                  🔄 Refresh Stream
+                  🔄 Refresh
                 </button>
               </div>
             </div>
@@ -1122,8 +1244,28 @@ export default function App() {
             ) : historyItems.length === 0 ? (
               <div className="empty-stream-card">
                 <div className="empty-glyph">📂</div>
-                <h3>No Transactions in Ledger</h3>
-                <p>Execute an assessment in the Risk Core or transmit a webhook to populate the stream.</p>
+                <h3>
+                  {historyFilter === 'ALL'
+                    ? 'No Transactions in Ledger'
+                    : `No ${historyFilter} Transactions Found`}
+                </h3>
+                <p>
+                  {historyFilter === 'ALL'
+                    ? 'Execute an assessment in the Risk Core or transmit a webhook to populate the stream.'
+                    : `No transaction records matching the ${historyFilter} decision policy are currently logged.`}
+                </p>
+                {historyFilter !== 'ALL' && (
+                  <button
+                    type="button"
+                    className="clear-filter-btn"
+                    onClick={() => {
+                      setHistoryFilter('ALL')
+                      fetchHistory('ALL')
+                    }}
+                  >
+                    View All Transactions
+                  </button>
+                )}
               </div>
             ) : (
               <div className="stream-table-responsive">
@@ -1229,9 +1371,49 @@ export default function App() {
               </div>
             </div>
 
+            {/* Judge Quick-Test Webhook Scenarios */}
+            <div className="webhook-scenarios-deck">
+              <button
+                type="button"
+                className="wb-scenario-btn"
+                onClick={() => handleWebhookSubmit({ paymentId: 'pay_demo_7821', forceInvalidSig: false })}
+                disabled={webhookLoading}
+              >
+                <span className="wb-btn-icon">⚡</span>
+                <div className="wb-btn-text">
+                  <strong>1. Valid Ingestion</strong>
+                  <small>Signs payload with secret → 200 Scored & Logged</small>
+                </div>
+              </button>
+              <button
+                type="button"
+                className="wb-scenario-btn"
+                onClick={() => handleWebhookSubmit({ paymentId: 'pay_demo_7821', forceInvalidSig: false })}
+                disabled={webhookLoading}
+              >
+                <span className="wb-btn-icon">🔄</span>
+                <div className="wb-btn-text">
+                  <strong>2. Idempotent Replay</strong>
+                  <small>Re-transmits same payment ID → Returns cached result</small>
+                </div>
+              </button>
+              <button
+                type="button"
+                className="wb-scenario-btn reject-btn"
+                onClick={() => handleWebhookSubmit({ paymentId: 'pay_tampered_9999', forceInvalidSig: true })}
+                disabled={webhookLoading}
+              >
+                <span className="wb-btn-icon">🚫</span>
+                <div className="wb-btn-text">
+                  <strong>3. Tampered Signature</strong>
+                  <small>Mismatched HMAC → 401 Unauthorized Rejection</small>
+                </div>
+              </button>
+            </div>
+
             <div className="webhook-terminal-grid">
               {/* Left Column: Form Simulator */}
-              <form onSubmit={handleWebhookSubmit} className="webhook-sim-form">
+              <form onSubmit={(e) => { e.preventDefault(); handleWebhookSubmit(); }} className="webhook-sim-form">
                 <div className="field-block single-col">
                   <label htmlFor="wb_pid">Razorpay Payment ID (Idempotency Key)</label>
                   <input
@@ -1350,8 +1532,7 @@ export default function App() {
                     <span className="standby-glyph">⚡</span>
                     <h4>Ready for Webhook Simulation</h4>
                     <p>
-                      Click transmit to test raw payload hashing, timing-safe HMAC validation,
-                      and automatic database logging.
+                      Click one of the quick scenario buttons or customize the payload to test timing-safe HMAC validation and automatic ledger logging.
                     </p>
                   </div>
                 )}
