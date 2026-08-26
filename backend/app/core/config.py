@@ -1,6 +1,6 @@
 """Application configuration settings."""
 
-from typing import List
+from typing import List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,7 +15,11 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
+        "https://risk-x-1.onrender.com",
+        "https://risk-x.onrender.com",
+        "https://risk-x-frontend.onrender.com",
     ]
+    CORS_ORIGIN_REGEX: Optional[str] = r"https:\/\/.*\.onrender\.com"
 
     # Database & Webhook Configuration
     DATABASE_PATH: str = "data/risk_x.db"
